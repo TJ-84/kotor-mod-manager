@@ -390,12 +390,16 @@ function renderFileList() {
           };
         } else if (f.fileName === "__PC__") {
           li.style.fontWeight = "600";
-          li.style.background = "var(--panel-2)";
-          li.title = "Player Character — lifted out of the nested module archive";
+          li.style.background = "rgba(245, 197, 99, 0.12)";
+          li.style.borderLeft = "3px solid var(--accent)";
+          li.title = "Click to edit the Player Character (lifted from the nested module archive)";
           if (state.current && state.current._isPC && state.current._saveFolder === f.folder) {
             li.classList.add("active");
           }
-          li.onclick = () => openPC(f.folder);
+          li.onclick = (ev) => {
+            ev.stopPropagation();
+            openPC(f.folder);
+          };
         } else if (f.fileName && f.fileName.toLowerCase().endsWith(".sav")) {
           li.onclick = () => {
             state.source = "archive";
@@ -468,17 +472,27 @@ async function extractVanilla(name) {
 }
 
 async function openPC(folder) {
-  if (state.dirty.size > 0) {
-    if (!confirm("Unsaved changes will be lost. Continue?")) return;
+  $("saveStatus").textContent = "loading PC…";
+  $("saveStatus").className = "status";
+  try {
+    if (state.dirty.size > 0) {
+      if (!confirm("Unsaved changes will be lost. Continue?")) return;
+    }
+    const data = await api(
+      `/api/pc?install=${state.install}&folder=${encodeURIComponent(folder)}`
+    );
+    state.current = {
+      name: "Player Character",
+      _isPC: true,
+      _saveFolder: folder,
+      ...data,
+    };
+    await _renderOpenedGFF(`PC inside ${folder}`, data);
+  } catch (e) {
+    $("saveStatus").textContent = "Couldn't open PC: " + e.message;
+    $("saveStatus").className = "status err";
+    console.error("openPC failed", e);
   }
-  const data = await api(`/api/pc?install=${state.install}&folder=${encodeURIComponent(folder)}`);
-  state.current = {
-    name: "Player Character",
-    _isPC: true,
-    _saveFolder: folder,
-    ...data,
-  };
-  await _renderOpenedGFF(`PC inside ${folder}`, data);
 }
 
 async function openSaveFile(folder, fileName) {
