@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>KOTOR .2da editor</title>
+<title>KOTOR mod editor</title>
 <style>
   :root {
     --bg: #0b0d12;
@@ -33,21 +33,32 @@
   button.primary { background: var(--accent); color: #1a1408; border-color: var(--accent); font-weight: 600; }
   button.primary:hover { filter: brightness(1.1); }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
-  .layout { display: grid; grid-template-columns: 260px 1fr; height: calc(100vh - 45px); }
+  .layout { display: grid; grid-template-columns: 300px 1fr; height: calc(100vh - 45px); }
   aside { background: var(--panel); border-right: 1px solid var(--border); overflow-y: auto; }
   aside .group { padding: 8px 10px; border-bottom: 1px solid var(--border); }
   aside .group-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px;
-    color: var(--muted); margin-bottom: 6px; }
+    color: var(--muted); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
   aside ul { list-style: none; padding: 0; margin: 0; }
-  aside li { padding: 4px 8px; border-radius: 3px; cursor: pointer; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  aside li { padding: 4px 8px; border-radius: 3px; cursor: pointer; font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+    display: flex; justify-content: space-between; align-items: center; gap: 6px; }
   aside li:hover { background: var(--panel-2); }
   aside li.active { background: var(--accent); color: #1a1408; font-weight: 600; }
+  aside li .ext { color: var(--muted); font-size: 10px; }
+  aside li.active .ext { color: #4a3b1a; }
+  aside li .extract { font-size: 10px; padding: 2px 6px; border-radius: 3px;
+    background: var(--accent-2); color: #0b1419; border: 0; }
+  aside .tabs { display: flex; gap: 4px; padding: 6px 8px; background: var(--panel);
+    border-bottom: 1px solid var(--border); }
+  aside .tab { flex: 1; padding: 5px; text-align: center; border-radius: 3px;
+    cursor: pointer; font-size: 12px; color: var(--muted); }
+  aside .tab.active { background: var(--panel-2); color: var(--accent); }
   main { display: flex; flex-direction: column; overflow: hidden; }
   .toolbar { display: flex; gap: 8px; align-items: center; padding: 8px 12px;
-    background: var(--panel); border-bottom: 1px solid var(--border); }
+    background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
   .toolbar .filename { font-family: ui-monospace, Menlo, monospace; color: var(--accent-2); }
   .toolbar .info { color: var(--muted); font-size: 12px; }
   .toolbar .spacer { flex: 1; }
+  .toolbar .schema-desc { color: var(--muted); font-size: 12px; font-style: italic; max-width: 50%; }
   .status { font-size: 12px; color: var(--muted); }
   .status.ok { color: var(--ok); }
   .status.err { color: var(--danger); }
@@ -55,7 +66,8 @@
   table { border-collapse: collapse; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
   th, td { border: 1px solid var(--border); padding: 0; min-width: 80px; }
   th { background: var(--panel); position: sticky; top: 0; z-index: 2;
-    padding: 6px 8px; color: var(--accent); text-align: left; white-space: nowrap; }
+    padding: 6px 8px; color: var(--accent); text-align: left; white-space: nowrap; cursor: help; }
+  th[title]::after { content: " ⓘ"; color: var(--accent-2); font-size: 10px; opacity: 0.7; }
   th.rowlabel, td.rowlabel { position: sticky; left: 0; background: var(--panel);
     color: var(--muted); z-index: 1; }
   th.rowlabel { z-index: 3; }
@@ -65,11 +77,26 @@
   td.dirty input { color: var(--accent); }
   .empty { padding: 40px; color: var(--muted); text-align: center; }
   .filter { padding: 4px 8px; width: 100%; }
+
+  /* GFF tree editor */
+  .gff-tree { padding: 12px 18px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  .gff-node { margin: 2px 0; }
+  .gff-key { color: var(--accent-2); }
+  .gff-type { color: var(--muted); font-size: 10px; margin-left: 6px; }
+  .gff-leaf { display: flex; gap: 8px; align-items: center; padding: 2px 0; }
+  .gff-leaf input { flex: 1; min-width: 0; max-width: 360px; background: var(--panel-2);
+    color: var(--text); border: 1px solid var(--border); border-radius: 3px;
+    padding: 3px 6px; font: inherit; }
+  .gff-leaf input:focus { border-color: var(--accent); outline: none; }
+  .gff-leaf.dirty input { color: var(--accent); border-color: var(--accent); }
+  .gff-children { margin-left: 16px; border-left: 1px dashed var(--border); padding-left: 10px; }
+  details > summary { cursor: pointer; user-select: none; padding: 2px 0; }
+  details > summary:hover { color: var(--accent); }
 </style>
 </head>
 <body>
 <header>
-  <h1>KOTOR <span>.2da</span> editor</h1>
+  <h1>KOTOR <span>mod</span> editor</h1>
   <select id="install"></select>
   <span class="status" id="installStatus"></span>
   <span class="spacer"></span>
@@ -80,8 +107,23 @@
 
 <div class="layout">
   <aside>
+    <div class="tabs">
+      <div class="tab active" data-source="override">Override</div>
+      <div class="tab" data-source="vanilla">Vanilla</div>
+    </div>
+    <div class="group" id="kindGroup" style="display:none">
+      <div class="group-title">Resource type</div>
+      <select id="kind">
+        <option value="2da">.2da — data tables</option>
+        <option value="uti">.uti — items</option>
+        <option value="utc">.utc — creatures</option>
+      </select>
+    </div>
     <div class="group">
-      <div class="group-title">Files in Override</div>
+      <div class="group-title">
+        <span id="listTitle">Files in Override</span>
+        <span id="listCount" style="color:var(--muted)"></span>
+      </div>
       <input type="text" id="fileFilter" class="filter" placeholder="filter…" />
     </div>
     <ul id="fileList"></ul>
@@ -93,8 +135,11 @@
       <span class="spacer"></span>
       <input type="text" id="rowFilter" placeholder="filter rows…" />
     </div>
+    <div class="toolbar" id="schemaBar" style="display:none">
+      <span class="schema-desc" id="schemaDesc"></span>
+    </div>
     <div class="grid-wrap" id="gridWrap">
-      <div class="empty">Pick a <code>.2da</code> file from the sidebar to start editing.</div>
+      <div class="empty">Pick a file from the sidebar to start editing.</div>
     </div>
   </main>
 </div>
@@ -104,10 +149,12 @@ const $ = (id) => document.getElementById(id);
 const state = {
   installs: [],
   install: null,
+  source: "override",        // "override" | "vanilla"
+  kind: "2da",
   files: [],
-  current: null,   // { name, version, columns, row_labels, rows }
-  dirty: new Set(), // "r,c" keys
-  filter: "",
+  current: null,             // { name, kind, ... }
+  dirty: new Set(),
+  schema: {},
 };
 
 async function api(path, opts) {
@@ -131,7 +178,7 @@ async function loadInstalls() {
   }
   state.install = sel.value;
   updateInstallStatus();
-  await loadFiles();
+  await loadList();
 }
 
 function updateInstallStatus() {
@@ -140,9 +187,24 @@ function updateInstallStatus() {
   $("installStatus").className = "status" + (i && i.exists ? " ok" : " err");
 }
 
-async function loadFiles() {
-  const data = await api(`/api/files?install=${state.install}`);
-  state.files = data.files;
+async function loadList() {
+  if (state.source === "override") {
+    $("listTitle").textContent = "Files in Override";
+    $("kindGroup").style.display = "none";
+    const data = await api(`/api/files?install=${state.install}`);
+    state.files = data.files.map(f => ({ name: f, source: "override" }));
+  } else {
+    $("listTitle").textContent = "Vanilla (in BIF)";
+    $("kindGroup").style.display = "";
+    try {
+      const data = await api(`/api/vanilla?install=${state.install}&kind=${state.kind}`);
+      state.files = data.files.map(f => ({ name: f, source: "vanilla" }));
+    } catch (e) {
+      state.files = [];
+      $("listCount").textContent = "(chitin.key not found)";
+    }
+  }
+  $("listCount").textContent = `${state.files.length}`;
   renderFileList();
 }
 
@@ -150,21 +212,62 @@ function renderFileList() {
   const q = $("fileFilter").value.toLowerCase();
   const ul = $("fileList");
   ul.innerHTML = "";
-  const items = state.files.filter(f => !q || f.toLowerCase().includes(q));
+  const items = state.files.filter(f => !q || f.name.toLowerCase().includes(q));
   if (items.length === 0) {
     const li = document.createElement("li");
-    li.textContent = "(no .2da files)";
+    li.textContent = "(none)";
     li.style.color = "var(--muted)";
     li.style.cursor = "default";
     ul.appendChild(li);
     return;
   }
-  for (const f of items) {
+  // Cap the rendered list — vanilla can be huge
+  const capped = items.slice(0, 500);
+  for (const f of capped) {
     const li = document.createElement("li");
-    li.textContent = f;
-    if (state.current && state.current.name === f) li.classList.add("active");
-    li.onclick = () => openFile(f);
+    const left = document.createElement("span");
+    left.textContent = f.name;
+    li.appendChild(left);
+    if (f.source === "vanilla") {
+      const btn = document.createElement("button");
+      btn.className = "extract";
+      btn.textContent = "extract";
+      btn.onclick = (e) => { e.stopPropagation(); extractVanilla(f.name); };
+      li.appendChild(btn);
+      li.onclick = () => extractVanilla(f.name);
+    } else {
+      if (state.current && state.current.name === f.name) li.classList.add("active");
+      li.onclick = () => openFile(f.name);
+    }
     ul.appendChild(li);
+  }
+  if (items.length > capped.length) {
+    const li = document.createElement("li");
+    li.textContent = `…${items.length - capped.length} more — narrow with filter`;
+    li.style.color = "var(--muted)";
+    li.style.cursor = "default";
+    ul.appendChild(li);
+  }
+}
+
+async function extractVanilla(name) {
+  try {
+    await api(
+      `/api/extract?install=${state.install}&kind=${state.kind}&name=${encodeURIComponent(name)}`,
+      { method: "POST" }
+    );
+    $("saveStatus").textContent = `extracted ${name} → Override`;
+    $("saveStatus").className = "status ok";
+    // Flip to Override and open the freshly extracted file
+    state.source = "override";
+    for (const t of document.querySelectorAll(".tab")) {
+      t.classList.toggle("active", t.dataset.source === "override");
+    }
+    await loadList();
+    openFile(name);
+  } catch (e) {
+    $("saveStatus").textContent = "extract failed: " + e.message;
+    $("saveStatus").className = "status err";
   }
 }
 
@@ -178,18 +281,29 @@ async function openFile(name) {
   $("saveBtn").disabled = true;
   $("saveStatus").textContent = "";
   $("currentFile").textContent = name;
-  $("currentInfo").textContent =
-    `${data.version} · ${data.rows.length} rows × ${data.columns.length} cols`;
   renderFileList();
-  renderGrid();
+
+  if (data.kind === "2da") {
+    $("currentInfo").textContent =
+      `${data.version} · ${data.rows.length} rows × ${data.columns.length} cols`;
+    state.schema = await api(`/api/schema?name=${encodeURIComponent(name)}`);
+    const desc = state.schema._description;
+    if (desc) {
+      $("schemaBar").style.display = "";
+      $("schemaDesc").textContent = desc;
+    } else {
+      $("schemaBar").style.display = "none";
+    }
+    renderTwoDA();
+  } else {
+    $("currentInfo").textContent = `GFF · ${data.doc._type.trim()} ${data.doc._version}`;
+    $("schemaBar").style.display = "none";
+    renderGFF();
+  }
 }
 
-function renderGrid() {
+function renderTwoDA() {
   const wrap = $("gridWrap");
-  if (!state.current) {
-    wrap.innerHTML = '<div class="empty">Pick a .2da file.</div>';
-    return;
-  }
   const { columns, row_labels, rows } = state.current;
   const q = $("rowFilter").value.toLowerCase();
 
@@ -203,6 +317,8 @@ function renderGrid() {
   for (const c of columns) {
     const th = document.createElement("th");
     th.textContent = c;
+    const desc = state.schema && state.schema[c];
+    if (desc) th.title = desc;
     trh.appendChild(th);
   }
   thead.appendChild(trh);
@@ -249,28 +365,175 @@ function onCellInput(e) {
   $("saveStatus").className = "status";
 }
 
+// ---------------- GFF tree editor ----------------
+
+const SIMPLE_TYPES = {
+  0: "byte", 1: "char", 2: "word", 3: "short",
+  4: "dword", 5: "int", 6: "dword64", 7: "int64",
+  8: "float", 9: "double", 10: "string", 11: "resref",
+};
+const STRUCT_TYPE = 14, LIST_TYPE = 15, LOCSTR_TYPE = 12, VOID_TYPE = 13;
+
+function renderGFF() {
+  const wrap = $("gridWrap");
+  wrap.innerHTML = "";
+  const container = document.createElement("div");
+  container.className = "gff-tree";
+  container.appendChild(renderStruct(state.current.doc._struct, "", true));
+  wrap.appendChild(container);
+}
+
+function renderStruct(node, pathPrefix, openByDefault) {
+  const wrap = document.createElement("div");
+  const entries = Object.entries(node).filter(([k]) => !k.startsWith("_"));
+  for (const [label, field] of entries) {
+    const path = pathPrefix ? pathPrefix + "." + label : label;
+    const t = field.type;
+    if (t === STRUCT_TYPE) {
+      const det = document.createElement("details");
+      if (openByDefault) det.open = true;
+      const sum = document.createElement("summary");
+      sum.innerHTML = `<span class="gff-key">${label}</span><span class="gff-type">struct</span>`;
+      det.appendChild(sum);
+      const children = document.createElement("div");
+      children.className = "gff-children";
+      children.appendChild(renderStruct(field.value, path, false));
+      det.appendChild(children);
+      wrap.appendChild(det);
+    } else if (t === LIST_TYPE) {
+      const det = document.createElement("details");
+      const sum = document.createElement("summary");
+      sum.innerHTML = `<span class="gff-key">${label}</span><span class="gff-type">list[${field.value.length}]</span>`;
+      det.appendChild(sum);
+      const children = document.createElement("div");
+      children.className = "gff-children";
+      field.value.forEach((item, i) => {
+        const itemDet = document.createElement("details");
+        const itemSum = document.createElement("summary");
+        itemSum.innerHTML = `<span class="gff-key">[${i}]</span><span class="gff-type">struct</span>`;
+        itemDet.appendChild(itemSum);
+        const sub = document.createElement("div");
+        sub.className = "gff-children";
+        sub.appendChild(renderStruct(item, path + "[" + i + "]", false));
+        itemDet.appendChild(sub);
+        children.appendChild(itemDet);
+      });
+      det.appendChild(children);
+      wrap.appendChild(det);
+    } else if (t === LOCSTR_TYPE) {
+      const row = document.createElement("div");
+      row.className = "gff-leaf";
+      const key = document.createElement("span");
+      key.className = "gff-key";
+      key.textContent = label;
+      const ty = document.createElement("span");
+      ty.className = "gff-type";
+      ty.textContent = "locstring";
+      const sub = field.value.substrings[0];
+      const text = sub ? sub.text : "";
+      const inp = document.createElement("input");
+      inp.value = text;
+      inp.dataset.path = path;
+      inp.dataset.kind = "locstring";
+      inp.addEventListener("input", onGffEdit);
+      row.appendChild(key); row.appendChild(ty); row.appendChild(inp);
+      wrap.appendChild(row);
+    } else if (t === VOID_TYPE) {
+      const row = document.createElement("div");
+      row.className = "gff-leaf";
+      row.innerHTML = `<span class="gff-key">${label}</span><span class="gff-type">void (read-only)</span>`;
+      wrap.appendChild(row);
+    } else if (SIMPLE_TYPES[t]) {
+      const row = document.createElement("div");
+      row.className = "gff-leaf";
+      const key = document.createElement("span");
+      key.className = "gff-key";
+      key.textContent = label;
+      const ty = document.createElement("span");
+      ty.className = "gff-type";
+      ty.textContent = SIMPLE_TYPES[t];
+      const inp = document.createElement("input");
+      inp.value = String(field.value);
+      inp.dataset.path = path;
+      inp.dataset.kind = "scalar";
+      inp.dataset.ftype = String(t);
+      inp.addEventListener("input", onGffEdit);
+      row.appendChild(key); row.appendChild(ty); row.appendChild(inp);
+      wrap.appendChild(row);
+    }
+  }
+  return wrap;
+}
+
+function gffNodeAt(path) {
+  // Navigates state.current.doc._struct by dotted path with [i] list indexing.
+  let node = state.current.doc._struct;
+  const parts = path.split(".");
+  for (let i = 0; i < parts.length; i++) {
+    let p = parts[i];
+    const m = p.match(/^([^\[]+)\[(\d+)\]$/);
+    if (m) {
+      node = node[m[1]].value[+m[2]];
+    } else if (i === parts.length - 1) {
+      return { parent: node, key: p };
+    } else {
+      node = node[p].value;
+    }
+  }
+  return { parent: node, key: parts[parts.length - 1] };
+}
+
+function onGffEdit(e) {
+  const inp = e.target;
+  const path = inp.dataset.path;
+  const { parent, key } = gffNodeAt(path);
+  const field = parent[key];
+  if (inp.dataset.kind === "scalar") {
+    const t = +inp.dataset.ftype;
+    if ([8, 9].includes(t)) field.value = parseFloat(inp.value);
+    else if (t === 10 || t === 11) field.value = inp.value;
+    else field.value = parseInt(inp.value, 10);
+  } else if (inp.dataset.kind === "locstring") {
+    if (!field.value.substrings.length) {
+      field.value.substrings.push({ id: 0, text: inp.value });
+    } else {
+      field.value.substrings[0].text = inp.value;
+    }
+  }
+  state.dirty.add(path);
+  inp.parentElement.classList.add("dirty");
+  $("saveBtn").disabled = false;
+  $("saveStatus").textContent = `${state.dirty.size} unsaved field(s)`;
+  $("saveStatus").className = "status";
+}
+
+// ---------------- Save ----------------
+
 async function save() {
   if (!state.current) return;
   $("saveBtn").disabled = true;
   $("saveStatus").textContent = "saving…";
   try {
-    const payload = {
-      twoda: {
+    let payload;
+    if (state.current.kind === "2da") {
+      payload = { twoda: {
         version: state.current.version,
         columns: state.current.columns,
         row_labels: state.current.row_labels,
         rows: state.current.rows,
-      }
-    };
+      }};
+    } else {
+      payload = { gff: state.current.doc };
+    }
     const res = await api(
       `/api/file?install=${state.install}&name=${encodeURIComponent(state.current.name)}`,
       { method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify(payload) }
     );
     state.dirty = new Set();
-    $("saveStatus").textContent = `saved · ${res.rows}×${res.columns}`;
+    $("saveStatus").textContent = "saved · " + (res.rows ? `${res.rows}×${res.columns}` : "ok");
     $("saveStatus").className = "status ok";
-    renderGrid();
+    if (state.current.kind === "2da") renderTwoDA(); else renderGFF();
   } catch (e) {
     $("saveStatus").textContent = "save failed: " + e.message;
     $("saveStatus").className = "status err";
@@ -278,17 +541,28 @@ async function save() {
   }
 }
 
+// ---------------- Wiring ----------------
+
 $("install").onchange = (e) => {
   state.install = e.target.value;
   state.current = null;
   updateInstallStatus();
-  renderGrid();
-  loadFiles();
+  $("gridWrap").innerHTML = '<div class="empty">Pick a file from the sidebar.</div>';
+  loadList();
 };
+$("kind").onchange = (e) => { state.kind = e.target.value; loadList(); };
 $("fileFilter").oninput = renderFileList;
-$("rowFilter").oninput = renderGrid;
-$("reloadBtn").onclick = () => state.current ? openFile(state.current.name) : loadFiles();
+$("rowFilter").oninput = () => { if (state.current && state.current.kind === "2da") renderTwoDA(); };
+$("reloadBtn").onclick = () => state.current ? openFile(state.current.name) : loadList();
 $("saveBtn").onclick = save;
+for (const t of document.querySelectorAll(".tab")) {
+  t.onclick = () => {
+    document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+    t.classList.add("active");
+    state.source = t.dataset.source;
+    loadList();
+  };
+}
 
 loadInstalls().catch(err => {
   document.body.innerHTML = '<div class="empty">Failed to load: ' + err.message + '</div>';

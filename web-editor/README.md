@@ -6,10 +6,14 @@ feats, items, Force powers, etc.) directly in the game's `Override/` folder.
 ## What it does
 
 - Auto-detects KOTOR 1 and KOTOR 2 Steam installs on macOS
-- Lists every `.2da` file currently in `Override/`
-- Opens any of them in a spreadsheet-style editor
-- Saves edits back as ASCII `.2da V2.0` (which the game reads fine)
-- Makes a timestamped `.bak` of the original before every save
+- Two file sources in the sidebar:
+  - **Override** — `.2da`, `.uti`, `.utc` files currently in your `Override/` folder
+  - **Vanilla** — every resource indexed in `chitin.key` / the `.bif` archives, with a one-click **extract** button that copies it into `Override/` so you can edit it
+- Spreadsheet-style editor for `.2da` files (class stats, feats, Force powers, etc.)
+  - Column tooltips with descriptions for common tables (classes, feat, spells, baseitems, exptable, skills, appearance)
+- Tree-style editor for GFF files (`.uti` items, `.utc` creatures) — edit scalar fields and localised names inline
+- Saves `.2da` as ASCII `2DA V2.0`, saves GFF back as binary — both are what the game expects
+- Makes a timestamped `.bak` next to the original before every save
 
 ## Run it
 
@@ -44,15 +48,15 @@ the new version is written, so you can always roll back.
 | Feat prerequisites | `feat.2da` | clear the `prereqfeat1` / `minlevel` cells |
 | Force power damage | `spells.2da` | tweak relevant numeric cols |
 
-## Getting `.2da` files into Override
+## Getting vanilla files into Override
 
-This editor only sees files already in `Override/`. To edit a vanilla game
-table, you first need to extract it from `data/2da.bif` using KOTOR Tool (or
-HoloPatcher / pykotor) and drop the extracted `.2da` into `Override/`. Then
-refresh this editor and it'll show up.
+Click the **Vanilla** tab in the sidebar, pick a resource type (`.2da`, `.uti`,
+or `.utc`), find the resource (filter is your friend — `.2da` has ~600 entries,
+`.uti` is in the thousands), and hit **extract**. The file is copied into
+`Override/` and opened for editing in one go.
 
-A future iteration could extract straight from `2da.bif`; for the MVP, it's
-Override-only to keep the blast radius small.
+Under the hood this parses `chitin.key`, finds the right `.bif` archive,
+reads the resource's offset/size, and writes the bytes to disk.
 
 ## Sandbox mode (no game install needed)
 
@@ -70,5 +74,12 @@ bash run.sh
 - macOS Steam paths only (KOTOR 1 = `swkotor`, KOTOR 2 = `Knights of the Old Republic II`)
 - Reads both ASCII (`2DA V2.0`) and binary (`2DA V2.b`) `.2da` formats; always
   writes ASCII back
-- Doesn't (yet) edit `.uti` items, `.utc` creatures, or extract from `.bif`
-- No schema awareness yet — column meanings are just the raw header names
+- GFF editor exposes scalar fields and the default substring of localised
+  strings; struct/list structure is browsable but adding/removing list items
+  is not yet supported
+- Column-description schema currently covers the most-edited tables
+  (classes, feat, spells, baseitems, exptable, skills, appearance) — other
+  tables show raw header names with no tooltip
+- `.utc` / `.uti` are also packed inside `.rim` / `.mod` module files for
+  specific maps; this editor only sees the global ones in `2da.bif` /
+  `templates.bif`. Per-module overrides need a different flow.
