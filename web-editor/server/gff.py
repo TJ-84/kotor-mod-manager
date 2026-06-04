@@ -42,6 +42,8 @@ from typing import Any, Dict, List, Tuple
 BYTE, CHAR, WORD, SHORT, DWORD, INT = 0, 1, 2, 3, 4, 5
 DWORD64, INT64, FLOAT, DOUBLE = 6, 7, 8, 9
 EXOSTR, RESREF, LOCSTR, VOID, STRUCT, LIST = 10, 11, 12, 13, 14, 15
+# BioWare extensions (used by KOTOR / NWN):
+ORIENTATION, VECTOR = 16, 17
 
 SIMPLE_TYPE_NAMES = {
     BYTE: "byte", CHAR: "char", WORD: "word", SHORT: "short",
@@ -49,6 +51,7 @@ SIMPLE_TYPE_NAMES = {
     FLOAT: "float", DOUBLE: "double",
     EXOSTR: "string", RESREF: "resref", LOCSTR: "locstring",
     VOID: "void", STRUCT: "struct", LIST: "list",
+    ORIENTATION: "orientation", VECTOR: "vector",
 }
 
 
@@ -97,7 +100,9 @@ def _parse(raw: bytes) -> dict:
 
     def read_struct(idx: int) -> dict:
         s_type, data_or_off, fcount = structs[idx]
-        if fcount == 1:
+        if fcount == 0:
+            field_indices = []
+        elif fcount == 1:
             field_indices = [data_or_off]
         else:
             field_indices = list(
@@ -153,10 +158,20 @@ def _parse(raw: bytes) -> dict:
         if ftype == VOID:
             (length,) = struct.unpack_from("<I", fdata, dval)
             return fdata[dval + 4 : dval + 4 + length].hex()
+        if ftype == ORIENTATION:
+            return list(struct.unpack_from("<4f", fdata, dval))
+        if ftype == VECTOR:
+            return list(struct.unpack_from("<3f", fdata, dval))
         if ftype == STRUCT:
+            if dval == 0xFFFFFFFF:
+                return {"_structType": 0}
             return read_struct(dval)
         if ftype == LIST:
+            if dval == 0xFFFFFFFF:
+                return []
             (lcount,) = struct.unpack_from("<I", lindex, dval)
+            if lcount == 0:
+                return []
             sids = struct.unpack_from(f"<{lcount}I", lindex, dval + 4)
             return [read_struct(sid) for sid in sids]
         raise ValueError(f"Unknown field type: {ftype}")
@@ -233,6 +248,10 @@ def dumps(gff: dict) -> bytes:
         if ftype == VOID:
             payload = bytes.fromhex(value)
             return add_fdata_aligned(struct.pack("<I", len(payload)) + payload)
+        if ftype == ORIENTATION:
+            return add_fdata_aligned(struct.pack("<4f", *(float(x) for x in value)))
+        if ftype == VECTOR:
+            return add_fdata_aligned(struct.pack("<3f", *(float(x) for x in value)))
         if ftype == STRUCT:
             return emit_struct(value)
         if ftype == LIST:

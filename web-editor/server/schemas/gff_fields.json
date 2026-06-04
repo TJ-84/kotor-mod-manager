@@ -88,6 +88,69 @@
       }
     ]
   },
+  "pt": {
+    "_label": "Party Table (party-wide state)",
+    "_displayName": [],
+    "sections": [
+      {
+        "title": "Party-wide state",
+        "fields": [
+          { "name": "PT_GOLD", "label": "Credits", "kind": "int",
+            "help": "Party credits. Set to whatever you want." },
+          { "name": "PT_XP_POOL", "label": "XP pool", "kind": "int",
+            "help": "Unspent XP waiting for the next level-up." },
+          { "name": "PT_PLAYEDSECONDS", "label": "Played time (seconds)", "kind": "int" },
+          { "name": "PT_NUM_MEMBERS", "label": "Party member count", "kind": "int",
+            "help": "Don't exceed 3 (PC + 2 companions). Game will misbehave." },
+          { "name": "PT_SOLOMODE", "label": "Solo mode", "kind": "bool" },
+          { "name": "PT_CHEAT_USED", "label": "Cheats used (achievement flag)", "kind": "bool",
+            "help": "Set by the game whenever you use a cheat. Flip back to 0 to undo." },
+          { "name": "PT_CONTROLLED_NP", "label": "Controlled NPC index", "kind": "int" },
+          { "name": "PT_MEMBERS", "label": "Party members", "kind": "list" },
+          { "name": "PT_AVAIL_NPCS", "label": "Available NPCs", "kind": "list",
+            "help": "Each entry has PT_NPC_AVAIL (available?) and PT_NPC_SELECT (selectable?)." },
+          { "name": "JNL_Entries", "label": "Journal entries", "kind": "list" }
+        ]
+      }
+    ]
+  },
+  "gvt": {
+    "_label": "Globals (plot flags)",
+    "_displayName": [],
+    "sections": [
+      {
+        "title": "Global variables",
+        "fields": [
+          { "name": "CatBoolean", "label": "Boolean flag names", "kind": "list" },
+          { "name": "CatNumber", "label": "Number flag names", "kind": "list" },
+          { "name": "CatLocation", "label": "Location flag names", "kind": "list" },
+          { "name": "CatString", "label": "String flag names", "kind": "list" },
+          { "name": "ValBoolean", "label": "Boolean values (packed)", "kind": "void",
+            "help": "Plot flags packed as bits. Edit in Advanced — risky." },
+          { "name": "ValNumber", "label": "Number values", "kind": "void" },
+          { "name": "ValString", "label": "String values", "kind": "list" }
+        ]
+      }
+    ]
+  },
+  "nfo": {
+    "_label": "Save info",
+    "_displayName": ["SAVEGAMENAME", "AREANAME"],
+    "sections": [
+      {
+        "title": "Save metadata",
+        "fields": [
+          { "name": "SAVEGAMENAME", "label": "Save name", "kind": "locstring" },
+          { "name": "AREANAME", "label": "Area display name", "kind": "string" },
+          { "name": "LASTMODULE", "label": "Last module", "kind": "string" },
+          { "name": "TIMEPLAYED", "label": "Time played (seconds)", "kind": "int" },
+          { "name": "CHEATUSED", "label": "Cheats used flag", "kind": "bool" },
+          { "name": "PORTRAIT0", "label": "PC portrait resref", "kind": "string" },
+          { "name": "PORTRAIT1", "label": "Companion 1 portrait", "kind": "string" }
+        ]
+      }
+    ]
+  },
   "bic": {
     "_label": "Player character",
     "_displayName": ["FirstName", "LastName"],

@@ -25,6 +25,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import erf as erfmod
 import gff as gffmod
 import keybif
 import tlk as tlkmod
@@ -179,6 +180,28 @@ def _read_savenfo_name(save_dir: Path) -> str | None:
     return None
 
 
+SAVE_FILE_KINDS = {
+    "savenfo.res": ("Save info", "nfo"),
+    "partytable.res": ("Party + credits + XP + journal", "pt"),
+    "globalvars.res": ("Plot flags / global variables", "gvt"),
+    "pifo.ifo": ("Module info", "ifo"),
+    "savegame.sav": ("Save archive (PC, equipment, module state)", "sav"),
+}
+
+
+def _classify_save_file(name: str) -> tuple[str, str]:
+    lower = name.lower()
+    if lower in SAVE_FILE_KINDS:
+        return SAVE_FILE_KINDS[lower]
+    if lower.endswith(".sav"):
+        return ("Module archive", "sav")
+    if lower.endswith(".res"):
+        return ("Resource file", "res")
+    if lower.endswith(".ifo"):
+        return ("Info file", "ifo")
+    return ("File", "other")
+
+
 @app.get("/api/saves")
 def list_saves(install: str):
     if install not in INSTALLS:
@@ -191,25 +214,38 @@ def list_saves(install: str):
         if not sub.is_dir():
             continue
         name = _read_savenfo_name(sub) or sub.name
-        # Find the PC file (.bic) — usually party.bic, but also pc.bic in some saves
-        bic = None
-        for candidate in ["party.bic", "PARTY.bic", "pc.bic"]:
-            if (sub / candidate).exists():
-                bic = candidate
-                break
-        if not bic:
-            # Fall back: pick the first .bic
-            bics = list(sub.glob("*.bic"))
-            if bics:
-                bic = bics[0].name
         out.append({
             "folder": sub.name,
             "display_name": name,
-            "pc_file": bic,
             "mtime": sub.stat().st_mtime,
         })
     out.sort(key=lambda s: s["mtime"], reverse=True)
     return {"saves_dir": str(saves_dir), "saves": out, "exists": True}
+
+
+@app.get("/api/save_files")
+def list_save_files(install: str, folder: str):
+    if install not in INSTALLS:
+        raise HTTPException(404, "Unknown install")
+    _safe_name(folder)
+    saves_dir = INSTALLS[install].get("saves")
+    if not saves_dir:
+        raise HTTPException(404, "Saves dir not detected")
+    folder_path = saves_dir / folder
+    if not folder_path.exists():
+        raise HTTPException(404, f"Save folder not found: {folder}")
+    files = []
+    for p in sorted(folder_path.iterdir()):
+        if not p.is_file():
+            continue
+        label, kind = _classify_save_file(p.name)
+        files.append({
+            "name": p.name,
+            "label": label,
+            "kind": kind,
+            "size": p.stat().st_size,
+        })
+    return {"folder": folder, "files": files}
 
 
 def _resolve_save_file(install: str, folder: str, name: str) -> Path:
@@ -226,6 +262,26 @@ def _resolve_save_file(install: str, folder: str, name: str) -> Path:
     return p
 
 
+def _gff_kind_for_save_file(name: str) -> str:
+    """Pick a schema kind based on the file's role inside a save folder."""
+    lower = name.lower()
+    if lower == "partytable.res":
+        return "pt"
+    if lower == "globalvars.res":
+        return "gvt"
+    if lower == "savenfo.res":
+        return "nfo"
+    if lower == "pifo.ifo":
+        return "ifo"
+    if lower.endswith(".bic"):
+        return "bic"
+    if lower.endswith(".utc"):
+        return "utc"
+    if lower.endswith(".uti"):
+        return "uti"
+    return lower.rsplit(".", 1)[-1] if "." in lower else "raw"
+
+
 @app.get("/api/save_file")
 def read_save_file(install: str, folder: str, name: str):
     p = _resolve_save_file(install, folder, name)
@@ -233,9 +289,7 @@ def read_save_file(install: str, folder: str, name: str):
         doc = gffmod.load(p)
     except Exception as e:
         raise HTTPException(400, f"Failed to parse {name}: {e}")
-    ext = p.suffix.lower().lstrip(".")
-    # Map .bic to its quick-edit schema; .res / .ifo fall back to raw tree
-    gff_kind = "bic" if ext == "bic" else ext
+    gff_kind = _gff_kind_for_save_file(name)
     display_name = _gff_display_name(install, gff_kind, doc)
     return {
         "path": str(p),
@@ -258,6 +312,198 @@ def write_save_file(install: str, folder: str, name: str, body: SaveRequest):
     except Exception as e:
         raise HTTPException(400, f"Invalid GFF payload: {e}")
     return {"saved": str(p)}
+
+
+# ----- ERF archive (.sav) browsing -----
+
+def _is_gff_bytes(data: bytes) -> bool:
+    """A GFF starts with 4 bytes of type tag + 4 bytes of version like V3.2."""
+    return len(data) >= 8 and data[4:8] == b"V3.2"
+
+
+def _is_erf_bytes(data: bytes) -> bool:
+    return len(data) >= 8 and data[0:4] in (b"ERF ", b"MOD ", b"SAV ") and data[4:8] == b"V1.0"
+
+
+def _walk_archive(top_path: Path, inner_path: list[str]) -> erfmod.ERF:
+    """Open top_path, then descend through each entry name in inner_path."""
+    arch = erfmod.load(top_path)
+    for step in inner_path:
+        # step is "RESREF.ext" — find the entry by filename
+        stem, _, ext = step.rpartition(".")
+        if not stem:
+            stem = ext
+            ext = ""
+        match = None
+        for e in arch.entries:
+            if e.filename.lower() == step.lower() or e.resref.lower() == stem.lower():
+                match = e
+                break
+        if not match:
+            raise HTTPException(404, f"{step} not found in archive")
+        if not _is_erf_bytes(match.data):
+            raise HTTPException(400, f"{step} is not a nested archive")
+        arch = erfmod.loads(match.data) if hasattr(erfmod, "loads") else _erf_loads(match.data)
+    return arch
+
+
+def _erf_loads(data: bytes) -> erfmod.ERF:
+    """Parse an ERF from bytes (we have erfmod.load for files only)."""
+    import tempfile
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".sav") as tf:
+        tf.write(data)
+        tmp = tf.name
+    try:
+        return erfmod.load(Path(tmp))
+    finally:
+        os.unlink(tmp)
+
+
+def _list_archive_entries(arch: erfmod.ERF, install: str) -> list[dict]:
+    entries = []
+    for e in arch.entries:
+        is_gff = _is_gff_bytes(e.data)
+        is_erf = _is_erf_bytes(e.data)
+        display = None
+        if is_gff:
+            try:
+                doc = gffmod.loads(e.data)
+                # display name pulled from FirstName/LastName for UTC, LocalizedName for UTI
+                ext = e.extension if e.extension in ("utc", "uti", "bic") else "utc"
+                display = _gff_display_name(install, ext, doc)
+            except Exception:
+                pass
+        entries.append({
+            "resref": e.resref,
+            "res_type": e.res_type,
+            "extension": e.extension,
+            "filename": e.filename,
+            "size": len(e.data),
+            "is_gff": is_gff,
+            "is_archive": is_erf,
+            "display_name": display,
+        })
+    entries.sort(key=lambda e: (not (e["is_gff"] or e["is_archive"]),
+                                e["extension"], e["resref"]))
+    return entries
+
+
+def _split_inner(path_q: str) -> list[str]:
+    """Inner-archive path is sent as `a.sav|b.sav|...`; split safely."""
+    if not path_q:
+        return []
+    return [p for p in path_q.split("|") if p]
+
+
+@app.get("/api/save_archive")
+def list_save_archive(install: str, folder: str, name: str, inner: str = ""):
+    """List contents of a .sav (or nested archive inside it)."""
+    p = _resolve_save_file(install, folder, name)
+    try:
+        arch = _walk_archive(p, _split_inner(inner))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, f"Failed to parse archive: {e}")
+    return {
+        "archive": str(p),
+        "inner": inner,
+        "type": arch.file_type,
+        "count": len(arch.entries),
+        "entries": _list_archive_entries(arch, install),
+    }
+
+
+@app.get("/api/save_archive_entry")
+def read_save_archive_entry(
+    install: str, folder: str, archive: str, resref: str, res_type: int,
+    inner: str = "",
+):
+    p = _resolve_save_file(install, folder, archive)
+    try:
+        arch = _walk_archive(p, _split_inner(inner))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, f"Failed to parse archive: {e}")
+    entry = arch.find(resref, res_type)
+    if not entry:
+        raise HTTPException(404, f"{resref} (type {res_type}) not in archive")
+    if not _is_gff_bytes(entry.data):
+        raise HTTPException(400, "This resource isn't a GFF — only GFF entries are editable here")
+    try:
+        doc = gffmod.loads(entry.data)
+    except Exception as e:
+        raise HTTPException(400, f"Failed to parse entry: {e}")
+    kind = entry.extension
+    display = _gff_display_name(install, kind, doc)
+    return {
+        "archive": str(p),
+        "resref": resref,
+        "res_type": res_type,
+        "extension": entry.extension,
+        "kind": "gff",
+        "gff_kind": kind,
+        "display_name": display,
+        "doc": doc,
+    }
+
+
+@app.post("/api/save_archive_entry")
+def write_save_archive_entry(
+    install: str, folder: str, archive: str, resref: str, res_type: int,
+    body: SaveRequest, inner: str = "",
+):
+    p = _resolve_save_file(install, folder, archive)
+    if body.gff is None:
+        raise HTTPException(400, "Missing gff payload")
+    inner_path = _split_inner(inner)
+    # Load every level so we can rewrite all the way back up
+    try:
+        levels: list[erfmod.ERF] = [erfmod.load(p)]
+        for step in inner_path:
+            parent = levels[-1]
+            match = next(
+                (e for e in parent.entries if e.filename.lower() == step.lower()
+                 or e.resref.lower() == step.lower().rsplit(".", 1)[0]),
+                None,
+            )
+            if not match:
+                raise HTTPException(404, f"{step} not found")
+            levels.append(_erf_loads(match.data))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, f"Failed to parse archive chain: {e}")
+
+    target = levels[-1]
+    if not target.find(resref, res_type):
+        raise HTTPException(404, "Entry not found")
+    try:
+        new_bytes = gffmod.dumps(body.gff)
+    except Exception as e:
+        raise HTTPException(400, f"Invalid GFF payload: {e}")
+    erfmod.replace_entry(target, resref, res_type, new_bytes)
+
+    # Roll the changes back up: rewrite each level into its parent
+    for i in range(len(levels) - 1, 0, -1):
+        child_bytes = erfmod.dumps(levels[i])
+        parent = levels[i - 1]
+        step = inner_path[i - 1]
+        # find the entry that corresponds to this nested archive
+        stem = step.lower().rsplit(".", 1)[0]
+        for entry in parent.entries:
+            if entry.filename.lower() == step.lower() or entry.resref.lower() == stem:
+                entry.data = child_bytes
+                break
+
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    shutil.copy2(p, p.with_suffix(p.suffix + f".bak.{stamp}"))
+    try:
+        erfmod.save(p, levels[0])
+    except Exception as e:
+        raise HTTPException(500, f"Failed to write archive: {e}")
+    return {"saved": str(p), "entry": f"{resref}.{erfmod.RES_EXT.get(res_type, res_type)}"}
 
 
 @app.get("/api/files")

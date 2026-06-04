@@ -159,6 +159,9 @@
         <span id="listTitle">Files in Override</span>
         <span id="listCount" style="color:var(--muted)"></span>
       </div>
+      <div id="archiveBack" style="display:none; padding: 4px 0;">
+        <button id="archiveBackBtn" style="width:100%">← back to saves</button>
+      </div>
       <input type="text" id="fileFilter" class="filter" placeholder="filter…" />
     </div>
     <ul id="fileList"></ul>
@@ -249,22 +252,76 @@ async function loadList() {
     $("listTitle").textContent = "Save games";
     $("kindGroup").style.display = "none";
     try {
+      // Two-level: saves at top, files inside each save when expanded
       const data = await api(`/api/saves?install=${state.install}`);
-      state.files = data.saves.map(s => ({
-        name: s.pc_file ? `${s.folder}/${s.pc_file}` : s.folder,
-        display_name: s.display_name,
-        source: "saves",
-        folder: s.folder,
-        pc_file: s.pc_file,
-        category: "Saves",
-      }));
+      const expanded = state.expandedSave;
+      state.files = [];
+      for (const s of data.saves) {
+        state.files.push({
+          name: s.folder,
+          display_name: s.display_name,
+          source: "saves",
+          folder: s.folder,
+          isFolder: true,
+          category: "Saves",
+        });
+        if (expanded === s.folder) {
+          const inner = await api(
+            `/api/save_files?install=${state.install}&folder=${encodeURIComponent(s.folder)}`
+          );
+          for (const f of inner.files) {
+            state.files.push({
+              name: `   ${f.name}`,
+              display_name: f.label,
+              source: "saves",
+              folder: s.folder,
+              fileName: f.name,
+              kind: f.kind,
+              category: "Saves",
+            });
+          }
+        }
+      }
     } catch (e) {
       state.files = [];
       $("listCount").textContent = "(no saves found)";
       return;
     }
+  } else if (state.source === "archive") {
+    // Browsing inside a .sav (ERF) archive, possibly nested
+    const innerList = state.archive.inner || [];
+    const trail = [state.archive.name, ...innerList].join(" → ");
+    $("listTitle").textContent = `In ${trail}`;
+    $("kindGroup").style.display = "none";
+    try {
+      const innerParam = innerList.join("|");
+      const data = await api(
+        `/api/save_archive?install=${state.install}` +
+        `&folder=${encodeURIComponent(state.archive.folder)}` +
+        `&name=${encodeURIComponent(state.archive.name)}` +
+        `&inner=${encodeURIComponent(innerParam)}`
+      );
+      state.files = data.entries.map(e => ({
+        name: e.filename,
+        display_name: e.display_name || (e.is_archive ? "archive" : (e.is_gff ? e.extension.toUpperCase() : null)),
+        source: "archive",
+        folder: state.archive.folder,
+        archive: state.archive.name,
+        inner: innerList,
+        resref: e.resref,
+        res_type: e.res_type,
+        is_gff: e.is_gff,
+        is_archive: e.is_archive,
+        category: e.is_archive ? "Nested archives" : e.extension.toUpperCase(),
+      }));
+    } catch (e) {
+      state.files = [];
+      $("listCount").textContent = "(failed: " + e.message + ")";
+      return;
+    }
   }
   $("listCount").textContent = `${state.files.length}`;
+  $("archiveBack").style.display = state.source === "archive" ? "" : "none";
   renderFileList();
 }
 
@@ -325,10 +382,46 @@ function renderFileList() {
         li.appendChild(btn);
         li.onclick = () => extractVanilla(f.name);
       } else if (f.source === "saves") {
-        if (state.current && state.current._saveKey === f.folder + "/" + f.pc_file) {
-          li.classList.add("active");
+        if (f.isFolder) {
+          if (state.expandedSave === f.folder) li.style.fontWeight = "600";
+          li.onclick = () => {
+            state.expandedSave = state.expandedSave === f.folder ? null : f.folder;
+            loadList();
+          };
+        } else if (f.fileName && f.fileName.toLowerCase().endsWith(".sav")) {
+          li.onclick = () => {
+            state.source = "archive";
+            state.archive = { folder: f.folder, name: f.fileName };
+            loadList();
+          };
+        } else {
+          if (state.current && state.current._saveKey === f.folder + "/" + f.fileName) {
+            li.classList.add("active");
+          }
+          li.onclick = () => openSaveFile(f.folder, f.fileName);
         }
-        li.onclick = () => openSave(f.folder, f.pc_file);
+      } else if (f.source === "archive") {
+        if (f.is_archive) {
+          li.style.fontWeight = "600";
+          li.title = "Nested archive — click to descend";
+          li.onclick = () => {
+            state.archive = {
+              folder: f.folder,
+              name: f.archive,
+              inner: [...(f.inner || []), f.name],
+            };
+            loadList();
+          };
+        } else if (!f.is_gff) {
+          li.style.color = "var(--muted)";
+          li.title = "Non-GFF resource — read-only in this editor";
+        } else {
+          const key = f.archive + "/" + (f.inner || []).join("|") + "/" + f.resref + "." + f.res_type;
+          if (state.current && state.current._archiveKey === key) {
+            li.classList.add("active");
+          }
+          li.onclick = () => openArchiveEntry(f);
+        }
       } else {
         if (state.current && state.current.name === f.name) li.classList.add("active");
         li.onclick = () => openFile(f.name);
@@ -366,31 +459,57 @@ async function extractVanilla(name) {
   }
 }
 
-async function openSave(folder, pcFile) {
-  if (!pcFile) {
-    $("saveStatus").textContent = "no party.bic in that save";
-    $("saveStatus").className = "status err";
-    return;
-  }
+async function openSaveFile(folder, fileName) {
   if (state.dirty.size > 0) {
     if (!confirm("Unsaved changes will be lost. Continue?")) return;
   }
   const data = await api(
     `/api/save_file?install=${state.install}` +
-    `&folder=${encodeURIComponent(folder)}&name=${encodeURIComponent(pcFile)}`
+    `&folder=${encodeURIComponent(folder)}&name=${encodeURIComponent(fileName)}`
   );
   state.current = {
-    name: pcFile,
-    _saveKey: folder + "/" + pcFile,
+    name: fileName,
+    _saveKey: folder + "/" + fileName,
     _saveFolder: folder,
-    _saveFile: pcFile,
+    _saveFile: fileName,
     ...data,
   };
+  await _renderOpenedGFF(`${folder}/${fileName}`, data);
+}
+
+async function openArchiveEntry(f) {
+  if (state.dirty.size > 0) {
+    if (!confirm("Unsaved changes will be lost. Continue?")) return;
+  }
+  const innerParam = (f.inner || []).join("|");
+  const data = await api(
+    `/api/save_archive_entry?install=${state.install}` +
+    `&folder=${encodeURIComponent(f.folder)}` +
+    `&archive=${encodeURIComponent(f.archive)}` +
+    `&inner=${encodeURIComponent(innerParam)}` +
+    `&resref=${encodeURIComponent(f.resref)}` +
+    `&res_type=${f.res_type}`
+  );
+  const trail = [f.archive, ...(f.inner || [])].join(" → ");
+  state.current = {
+    name: f.resref + "." + data.extension,
+    _archiveKey: f.archive + "/" + (f.inner || []).join("|") + "/" + f.resref + "." + f.res_type,
+    _archiveFolder: f.folder,
+    _archiveName: f.archive,
+    _archiveInner: f.inner || [],
+    _archiveResref: f.resref,
+    _archiveResType: f.res_type,
+    ...data,
+  };
+  await _renderOpenedGFF(`${trail} → ${state.current.name}`, data);
+}
+
+async function _renderOpenedGFF(label, data) {
   state.dirty = new Set();
   $("saveBtn").disabled = true;
   $("saveStatus").textContent = "";
-  $("currentFile").textContent = data.display_name || pcFile;
-  $("currentInfo").textContent = `${data.doc._type.trim()}  ·  ${folder}/${pcFile}`;
+  $("currentFile").textContent = data.display_name || state.current.name;
+  $("currentInfo").textContent = `${data.doc._type.trim()}  ·  ${label}`;
   $("schemaBar").style.display = "none";
   if (!state.gffSchemaCache) state.gffSchemaCache = {};
   if (!state.gffSchemaCache[data.gff_kind]) {
@@ -811,7 +930,15 @@ async function save() {
       payload = { gff: state.current.doc };
     }
     let url;
-    if (state.current._saveFolder) {
+    if (state.current._archiveResref) {
+      const innerParam = (state.current._archiveInner || []).join("|");
+      url = `/api/save_archive_entry?install=${state.install}` +
+            `&folder=${encodeURIComponent(state.current._archiveFolder)}` +
+            `&archive=${encodeURIComponent(state.current._archiveName)}` +
+            `&inner=${encodeURIComponent(innerParam)}` +
+            `&resref=${encodeURIComponent(state.current._archiveResref)}` +
+            `&res_type=${state.current._archiveResType}`;
+    } else if (state.current._saveFolder) {
       url = `/api/save_file?install=${state.install}` +
             `&folder=${encodeURIComponent(state.current._saveFolder)}` +
             `&name=${encodeURIComponent(state.current._saveFile)}`;
@@ -852,9 +979,21 @@ for (const t of document.querySelectorAll(".tab")) {
     document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
     t.classList.add("active");
     state.source = t.dataset.source;
+    state.archive = null;
+    $("archiveBack").style.display = "none";
     loadList();
   };
 }
+$("archiveBackBtn").onclick = () => {
+  if (state.archive && state.archive.inner && state.archive.inner.length > 0) {
+    // Pop one nested level
+    state.archive = { ...state.archive, inner: state.archive.inner.slice(0, -1) };
+  } else {
+    state.source = "saves";
+    state.archive = null;
+  }
+  loadList();
+};
 
 loadInstalls().catch(err => {
   document.body.innerHTML = '<div class="empty">Failed to load: ' + err.message + '</div>';
