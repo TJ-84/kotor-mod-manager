@@ -37,17 +37,41 @@ SCHEMA_PATH = HERE / "schemas" / "columns.json"
 HOME = Path(os.path.expanduser("~"))
 STEAM_COMMON = HOME / "Library" / "Application Support" / "Steam" / "steamapps" / "common"
 
+
+def _find_install(game_dir: Path, app_name: str) -> Dict[str, Path]:
+    """Resolve the Override and data dirs for a Mac Steam KOTOR install.
+
+    The Aspyr macOS port lays things out as:
+        <game>/<App>.app/Contents/Assets/         <- chitin.key, *.bif
+        <game>/<App>.app/Contents/KOTOR Data/Override/
+    Older / alternate layouts may use:
+        <game>/<App>.app/Contents/Resources/data/
+        <game>/<App>.app/Contents/Resources/Override/
+    We probe both, falling back to the Aspyr layout for paths that don't exist
+    so the UI still shows something sensible.
+    """
+    bundle = game_dir / app_name
+    candidates_override = [
+        bundle / "Contents" / "KOTOR Data" / "Override",
+        bundle / "Contents" / "Resources" / "Override",
+        bundle / "Contents" / "Resources" / "override",
+    ]
+    candidates_data = [
+        bundle / "Contents" / "Assets",
+        bundle / "Contents" / "Resources" / "data",
+    ]
+    override = next((p for p in candidates_override if p.exists()), candidates_override[0])
+    data = next((p for p in candidates_data if (p / "chitin.key").exists()),
+                candidates_data[0])
+    return {"root": game_dir, "override": override, "data": data}
+
+
 INSTALLS: Dict[str, Dict[str, Path]] = {
-    "K1": {
-        "root": STEAM_COMMON / "swkotor",
-        "override": STEAM_COMMON / "swkotor" / "Knights of the Old Republic.app" / "Contents" / "Resources" / "Override",
-        "data": STEAM_COMMON / "swkotor" / "Knights of the Old Republic.app" / "Contents" / "Resources" / "data",
-    },
-    "K2": {
-        "root": STEAM_COMMON / "Knights of the Old Republic II",
-        "override": STEAM_COMMON / "Knights of the Old Republic II" / "Knights of the Old Republic II.app" / "Contents" / "Resources" / "override",
-        "data": STEAM_COMMON / "Knights of the Old Republic II" / "Knights of the Old Republic II.app" / "Contents" / "Resources" / "data",
-    },
+    "K1": _find_install(STEAM_COMMON / "swkotor", "Knights of the Old Republic.app"),
+    "K2": _find_install(
+        STEAM_COMMON / "Knights of the Old Republic II",
+        "Knights of the Old Republic II.app",
+    ),
 }
 
 if os.environ.get("KOTOR_EDITOR_ROOT"):

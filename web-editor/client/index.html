@@ -183,8 +183,13 @@ async function loadInstalls() {
 
 function updateInstallStatus() {
   const i = state.installs.find(x => x.key === state.install);
-  $("installStatus").textContent = i ? i.override : "";
-  $("installStatus").className = "status" + (i && i.exists ? " ok" : " err");
+  if (!i) { $("installStatus").textContent = ""; return; }
+  const bits = [];
+  bits.push(`Override: ${i.exists ? "✓" : "missing"}`);
+  bits.push(`chitin.key: ${i.data_exists ? "✓" : "missing"}`);
+  $("installStatus").textContent = bits.join("  ·  ") + "  ·  " + i.override;
+  $("installStatus").className =
+    "status" + (i.exists || i.data_exists ? " ok" : " err");
 }
 
 async function loadList() {

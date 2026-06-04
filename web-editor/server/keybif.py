@@ -115,19 +115,39 @@ def extract_resource(bif_path: Path, res_index: int) -> Tuple[bytes, int]:
 def vanilla_resources(
     data_dir: Path, res_type: int
 ) -> Dict[str, Tuple[Path, int]]:
-    """Map resref -> (bif file path, resource index within that bif) for a given
-    resource type. data_dir should be the game's Resources/data folder
-    containing chitin.key and the .bif files."""
+    """Map resref -> (bif file path, resource index) for a given resource type.
+
+    data_dir must contain chitin.key. BIF locations vary by Mac vs PC layout —
+    paths inside chitin.key may be relative to the game root, to the .app's
+    Contents/Assets dir, or just bare filenames. We probe candidate base dirs
+    and finally fall back to a recursive search by filename.
+    """
     data_dir = Path(data_dir)
     key = load_chitin(data_dir / "chitin.key")
-    # Game root is one level above the data dir (data/ sits in Resources/),
-    # but KEY's bif paths are already relative to the game root, e.g.
-    # "data/2da.bif". We resolve against the .app's Resources/ dir.
-    resources_dir = data_dir.parent  # .../Resources
+
+    bundle_contents = data_dir.parent  # e.g. .../Contents
+    candidate_bases = [
+        data_dir,                # bif paths might be relative to Assets/
+        data_dir.parent,         # or to Contents/
+        data_dir.parent.parent,  # or to the .app/
+    ]
+
+    def resolve_bif(rel: str) -> Path:
+        # Try each candidate base
+        for base in candidate_bases:
+            p = base / rel
+            if p.exists():
+                return p
+        # Fallback: search recursively for the basename anywhere under the
+        # .app bundle. KOTOR ships a handful of .bif files, so this is cheap.
+        name = Path(rel).name
+        for p in bundle_contents.rglob(name):
+            return p
+        # Last resort: return the first candidate (will 404 on extract).
+        return candidate_bases[0] / rel
 
     out: Dict[str, Tuple[Path, int]] = {}
     for e in key.filter(res_type):
         bif_rel = key.bif_paths[e.bif_index]
-        bif_abs = resources_dir / bif_rel
-        out[e.resref] = (bif_abs, e.bif_res_index)
+        out[e.resref] = (resolve_bif(bif_rel), e.bif_res_index)
     return out
