@@ -88,6 +88,78 @@
       }
     ]
   },
+  "bic": {
+    "_label": "Player character",
+    "_displayName": ["FirstName", "LastName"],
+    "sections": [
+      {
+        "title": "Identity",
+        "fields": [
+          { "name": "FirstName", "label": "First name", "kind": "locstring" },
+          { "name": "LastName", "label": "Last name", "kind": "locstring" },
+          { "name": "Tag", "label": "Tag", "kind": "string" },
+          { "name": "Description", "label": "Description", "kind": "locstring" }
+        ]
+      },
+      {
+        "title": "Appearance",
+        "fields": [
+          { "name": "Appearance_Type", "label": "Appearance", "kind": "enum",
+            "enum": "appearance" },
+          { "name": "Gender", "label": "Gender", "kind": "enum", "enum": "gender" },
+          { "name": "Race", "label": "Race", "kind": "enum", "enum": "race" },
+          { "name": "SubRace", "label": "Subrace", "kind": "enum", "enum": "subrace" },
+          { "name": "PortraitId", "label": "Portrait ID", "kind": "int" }
+        ]
+      },
+      {
+        "title": "Stats",
+        "fields": [
+          { "name": "Str", "label": "Strength", "kind": "int", "min": 1, "max": 50 },
+          { "name": "Dex", "label": "Dexterity", "kind": "int", "min": 1, "max": 50 },
+          { "name": "Con", "label": "Constitution", "kind": "int", "min": 1, "max": 50 },
+          { "name": "Int", "label": "Intelligence", "kind": "int", "min": 1, "max": 50 },
+          { "name": "Wis", "label": "Wisdom", "kind": "int", "min": 1, "max": 50 },
+          { "name": "Cha", "label": "Charisma", "kind": "int", "min": 1, "max": 50 },
+          { "name": "HitPoints", "label": "Base HP", "kind": "int" },
+          { "name": "MaxHitPoints", "label": "Max HP (effective)", "kind": "int" },
+          { "name": "CurrentHitPoints", "label": "Current HP", "kind": "int" },
+          { "name": "ForcePoints", "label": "Max Force Points", "kind": "int" },
+          { "name": "CurrentForce", "label": "Current Force Points", "kind": "int" },
+          { "name": "NaturalAC", "label": "Natural AC bonus", "kind": "int" },
+          { "name": "fortbonus", "label": "Fortitude save bonus", "kind": "int" },
+          { "name": "refbonus", "label": "Reflex save bonus", "kind": "int" },
+          { "name": "willbonus", "label": "Will save bonus", "kind": "int" },
+          { "name": "Experience", "label": "Experience (XP)", "kind": "int",
+            "help": "Total XP earned. Higher than next-level threshold triggers a level-up on next gain." }
+        ]
+      },
+      {
+        "title": "Alignment & Faction",
+        "fields": [
+          { "name": "GoodEvil", "label": "Alignment (Dark ↔ Light)", "kind": "int",
+            "min": 0, "max": 100,
+            "help": "0 = pure dark side, 50 = neutral, 100 = pure light side." },
+          { "name": "FactionID", "label": "Faction", "kind": "enum", "enum": "faction" },
+          { "name": "LightForcePoints", "label": "Light-side force points earned", "kind": "int" },
+          { "name": "DarkForcePoints", "label": "Dark-side force points earned", "kind": "int" }
+        ]
+      },
+      {
+        "title": "Inventory & Progression",
+        "fields": [
+          { "name": "Gold", "label": "Credits", "kind": "int",
+            "help": "Yes — KOTOR stores credits in a field literally called Gold." },
+          { "name": "ClassList", "label": "Classes (multiclass)", "kind": "list",
+            "help": "Each entry is a class + level. Edit in the Advanced tree." },
+          { "name": "SkillList", "label": "Skills", "kind": "list" },
+          { "name": "FeatList", "label": "Feats", "kind": "list" },
+          { "name": "Equip_ItemList", "label": "Equipped items", "kind": "list" },
+          { "name": "ItemList", "label": "Inventory", "kind": "list" }
+        ]
+      }
+    ]
+  },
   "uti": {
     "_label": "Item",
     "_displayName": ["LocalizedName"],

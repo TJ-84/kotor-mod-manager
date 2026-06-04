@@ -42,6 +42,21 @@ HOME = Path(os.path.expanduser("~"))
 STEAM_COMMON = HOME / "Library" / "Application Support" / "Steam" / "steamapps" / "common"
 
 
+def _find_saves_dir(game_dir: Path, bundle: Path) -> Path:
+    """Probe likely macOS save locations for KOTOR."""
+    candidates = [
+        bundle / "Contents" / "KOTOR Data" / "saves",
+        bundle / "Contents" / "Resources" / "saves",
+        HOME / "Documents" / "Knights of the Old Republic" / "saves",
+        HOME / "Library" / "Application Support" / "Knights of the Old Republic" / "saves",
+        HOME / "Library" / "Containers" / "com.aspyr.kotor.steam" / "Data" / "Documents" / "saves",
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return candidates[0]
+
+
 def _find_install(game_dir: Path, app_name: str) -> Dict[str, Path]:
     """Resolve the Override and data dirs for a Mac Steam KOTOR install.
 
@@ -67,7 +82,8 @@ def _find_install(game_dir: Path, app_name: str) -> Dict[str, Path]:
     override = next((p for p in candidates_override if p.exists()), candidates_override[0])
     data = next((p for p in candidates_data if (p / "chitin.key").exists()),
                 candidates_data[0])
-    return {"root": game_dir, "override": override, "data": data}
+    saves = _find_saves_dir(game_dir, bundle)
+    return {"root": game_dir, "override": override, "data": data, "saves": saves}
 
 
 INSTALLS: Dict[str, Dict[str, Path]] = {
@@ -81,8 +97,10 @@ INSTALLS: Dict[str, Dict[str, Path]] = {
 if os.environ.get("KOTOR_EDITOR_ROOT"):
     dev = Path(os.environ["KOTOR_EDITOR_ROOT"]).expanduser()
     INSTALLS = {
-        "K1": {"root": dev / "K1", "override": dev / "K1" / "Override", "data": dev / "K1" / "data"},
-        "K2": {"root": dev / "K2", "override": dev / "K2" / "Override", "data": dev / "K2" / "data"},
+        "K1": {"root": dev / "K1", "override": dev / "K1" / "Override",
+               "data": dev / "K1" / "data", "saves": dev / "K1" / "saves"},
+        "K2": {"root": dev / "K2", "override": dev / "K2" / "Override",
+               "data": dev / "K2" / "data", "saves": dev / "K2" / "saves"},
     }
 
 
@@ -91,7 +109,7 @@ KIND_RESTYPE = {
     "uti": keybif.RESTYPE_UTI,
     "utc": keybif.RESTYPE_UTC,
 }
-EDITABLE_EXTS = {".2da", ".uti", ".utc"}
+EDITABLE_EXTS = {".2da", ".uti", ".utc", ".bic", ".res", ".ifo"}
 
 
 app = FastAPI(title="KOTOR mod editor")
@@ -126,10 +144,120 @@ def list_installs():
             "root": str(paths["root"]),
             "override": str(paths["override"]),
             "data": str(paths["data"]),
+            "saves": str(paths.get("saves", "")),
             "exists": paths["override"].exists(),
             "data_exists": (paths["data"] / "chitin.key").exists(),
+            "saves_exists": paths.get("saves") and paths["saves"].exists(),
         })
     return out
+
+
+def _read_savenfo_name(save_dir: Path) -> str | None:
+    """Best-effort read of the player-visible save name from savenfo.res.
+
+    savenfo.res is a small GFF with a SAVEGAMENAME (or similar) locstring.
+    Field name varies (SAVEGAMENAME, SAVE_GAME_NAME, AREANAME)."""
+    candidates = [save_dir / "savenfo.res", save_dir / "SAVENFO.res"]
+    for sf in candidates:
+        if not sf.exists():
+            continue
+        try:
+            doc = gffmod.load(sf)
+        except Exception:
+            continue
+        root = doc.get("_struct", {})
+        for label in ("SAVEGAMENAME", "SAVE_GAME_NAME", "AREANAME", "PCNAME"):
+            entry = root.get(label)
+            if not entry:
+                continue
+            val = entry["value"]
+            if isinstance(val, dict) and val.get("substrings"):
+                return val["substrings"][0]["text"]
+            if isinstance(val, str):
+                return val
+        return None
+    return None
+
+
+@app.get("/api/saves")
+def list_saves(install: str):
+    if install not in INSTALLS:
+        raise HTTPException(404, "Unknown install")
+    saves_dir = INSTALLS[install].get("saves")
+    if not saves_dir or not saves_dir.exists():
+        return {"saves_dir": str(saves_dir) if saves_dir else "", "saves": [], "exists": False}
+    out = []
+    for sub in sorted(saves_dir.iterdir()):
+        if not sub.is_dir():
+            continue
+        name = _read_savenfo_name(sub) or sub.name
+        # Find the PC file (.bic) — usually party.bic, but also pc.bic in some saves
+        bic = None
+        for candidate in ["party.bic", "PARTY.bic", "pc.bic"]:
+            if (sub / candidate).exists():
+                bic = candidate
+                break
+        if not bic:
+            # Fall back: pick the first .bic
+            bics = list(sub.glob("*.bic"))
+            if bics:
+                bic = bics[0].name
+        out.append({
+            "folder": sub.name,
+            "display_name": name,
+            "pc_file": bic,
+            "mtime": sub.stat().st_mtime,
+        })
+    out.sort(key=lambda s: s["mtime"], reverse=True)
+    return {"saves_dir": str(saves_dir), "saves": out, "exists": True}
+
+
+def _resolve_save_file(install: str, folder: str, name: str) -> Path:
+    if install not in INSTALLS:
+        raise HTTPException(404, "Unknown install")
+    _safe_name(folder)
+    _safe_name(name)
+    saves_dir = INSTALLS[install].get("saves")
+    if not saves_dir:
+        raise HTTPException(404, "Saves dir not detected")
+    p = saves_dir / folder / name
+    if not p.exists():
+        raise HTTPException(404, f"Save file not found: {folder}/{name}")
+    return p
+
+
+@app.get("/api/save_file")
+def read_save_file(install: str, folder: str, name: str):
+    p = _resolve_save_file(install, folder, name)
+    try:
+        doc = gffmod.load(p)
+    except Exception as e:
+        raise HTTPException(400, f"Failed to parse {name}: {e}")
+    ext = p.suffix.lower().lstrip(".")
+    # Map .bic to its quick-edit schema; .res / .ifo fall back to raw tree
+    gff_kind = "bic" if ext == "bic" else ext
+    display_name = _gff_display_name(install, gff_kind, doc)
+    return {
+        "path": str(p),
+        "kind": "gff",
+        "gff_kind": gff_kind,
+        "display_name": display_name,
+        "doc": doc,
+    }
+
+
+@app.post("/api/save_file")
+def write_save_file(install: str, folder: str, name: str, body: SaveRequest):
+    p = _resolve_save_file(install, folder, name)
+    if body.gff is None:
+        raise HTTPException(400, "Missing gff payload")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    shutil.copy2(p, p.with_suffix(p.suffix + f".bak.{stamp}"))
+    try:
+        gffmod.save(p, body.gff)
+    except Exception as e:
+        raise HTTPException(400, f"Invalid GFF payload: {e}")
+    return {"saved": str(p)}
 
 
 @app.get("/api/files")
@@ -139,6 +267,11 @@ def list_files(install: str):
     override = INSTALLS[install]["override"]
     if not override.exists():
         return {"override": str(override), "files": [], "exists": False}
+    # Resolve display names per kind once, then enrich each entry
+    names_by_kind = {
+        "uti": _names_for(install, "override", "uti"),
+        "utc": _names_for(install, "override", "utc"),
+    }
     files = []
     for p in sorted(override.iterdir()):
         if not p.is_file():
@@ -147,7 +280,12 @@ def list_files(install: str):
         if ext not in EDITABLE_EXTS:
             continue
         rules = {".uti": UTI_CATEGORIES, ".utc": UTC_CATEGORIES, ".2da": TWODA_CATEGORIES}[ext]
-        files.append({"name": p.name, "category": _categorise(p.name, rules)})
+        names = names_by_kind.get(ext.lstrip("."), {})
+        files.append({
+            "name": p.name,
+            "category": _categorise(p.name, rules),
+            "display_name": names.get(p.stem.lower()),
+        })
     return {"override": str(override), "files": files, "exists": True}
 
 
@@ -228,10 +366,15 @@ def list_vanilla(install: str, kind: str):
     except Exception as e:
         raise HTTPException(500, f"Failed to read chitin.key: {e}")
     rules = {"uti": UTI_CATEGORIES, "utc": UTC_CATEGORIES, "2da": TWODA_CATEGORIES}[kind]
+    names = _names_for(install, "vanilla", kind)
     files = []
     for resref in sorted(resources.keys()):
         name = f"{resref}.{kind}"
-        files.append({"name": name, "category": _categorise(name, rules)})
+        files.append({
+            "name": name,
+            "category": _categorise(name, rules),
+            "display_name": names.get(resref.lower()),
+        })
     return {"kind": kind, "count": len(files), "files": files}
 
 
@@ -324,6 +467,74 @@ def _gff_display_name(install: str, kind: str, doc: dict) -> str | None:
         elif isinstance(val, str):
             parts.append(val)
     return " ".join(p for p in parts if p) or None
+
+
+# (install, kind) -> { resref: display_name }
+_name_cache: dict[tuple[str, str, str], dict[str, str]] = {}
+
+
+def _names_for(install: str, source: str, kind: str) -> dict[str, str]:
+    """Resolve display names for every file of `kind` in `source` (override or
+    vanilla). Cached because scanning thousands of GFFs is not free."""
+    key = (install, source, kind)
+    if key in _name_cache:
+        return _name_cache[key]
+    if kind not in ("uti", "utc"):
+        _name_cache[key] = {}
+        return _name_cache[key]
+
+    out: dict[str, str] = {}
+    if source == "override":
+        override = INSTALLS[install]["override"]
+        if override.exists():
+            for p in override.iterdir():
+                if p.is_file() and p.suffix.lower() == "." + kind:
+                    try:
+                        doc = gffmod.load(p)
+                        name = _gff_display_name(install, kind, doc)
+                        if name:
+                            out[p.stem.lower()] = name
+                    except Exception:
+                        continue
+    else:  # vanilla
+        data_dir = INSTALLS[install]["data"]
+        if not (data_dir / "chitin.key").exists():
+            _name_cache[key] = {}
+            return _name_cache[key]
+        try:
+            resources = keybif.vanilla_resources(data_dir, KIND_RESTYPE[kind])
+        except Exception:
+            _name_cache[key] = {}
+            return _name_cache[key]
+        # Group by bif file so we only read each BIF once
+        by_bif: dict[Path, list[tuple[str, int]]] = {}
+        for resref, (bif_path, ridx) in resources.items():
+            by_bif.setdefault(bif_path, []).append((resref, ridx))
+        import struct as _struct
+        for bif_path, entries in by_bif.items():
+            try:
+                raw = bif_path.read_bytes()
+            except Exception:
+                continue
+            if not raw.startswith(b"BIFFV1"):
+                continue
+            var_count, _, var_off = _struct.unpack_from("<III", raw, 8)
+            for resref, ridx in entries:
+                if ridx >= var_count:
+                    continue
+                _, offset, size, _ = _struct.unpack_from(
+                    "<IIII", raw, var_off + ridx * 16
+                )
+                data = raw[offset : offset + size]
+                try:
+                    doc = gffmod.loads(data)
+                    name = _gff_display_name(install, kind, doc)
+                    if name:
+                        out[resref.lower()] = name
+                except Exception:
+                    continue
+    _name_cache[key] = out
+    return out
 
 
 @app.post("/api/file")

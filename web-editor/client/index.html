@@ -41,6 +41,12 @@
   aside ul { list-style: none; padding: 0; margin: 0; }
   aside li { padding: 4px 8px; border-radius: 3px; cursor: pointer; font-family: ui-monospace, Menlo, monospace; font-size: 12px;
     display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+  aside li .file-label { min-width: 0; flex: 1; overflow: hidden; }
+  aside li .file-display-name { font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 12px; color: var(--text); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+  aside li .file-sub { font-size: 10px; color: var(--muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+  aside li.active .file-display-name { color: #1a1408; }
+  aside li.active .file-sub { color: #4a3b1a; }
   aside li:hover { background: var(--panel-2); }
   aside li.active { background: var(--accent); color: #1a1408; font-weight: 600; }
   aside li .ext { color: var(--muted); font-size: 10px; }
@@ -138,6 +144,7 @@
     <div class="tabs">
       <div class="tab active" data-source="override">Override</div>
       <div class="tab" data-source="vanilla">Vanilla</div>
+      <div class="tab" data-source="saves">Saves</div>
     </div>
     <div class="group" id="kindGroup" style="display:none">
       <div class="group-title">Resource type</div>
@@ -221,12 +228,13 @@ function updateInstallStatus() {
 }
 
 async function loadList() {
+  $("listCount").textContent = "loading…";
   if (state.source === "override") {
     $("listTitle").textContent = "Files in Override";
     $("kindGroup").style.display = "none";
     const data = await api(`/api/files?install=${state.install}`);
     state.files = data.files.map(f => ({ ...f, source: "override" }));
-  } else {
+  } else if (state.source === "vanilla") {
     $("listTitle").textContent = "Vanilla (in BIF)";
     $("kindGroup").style.display = "";
     try {
@@ -235,6 +243,25 @@ async function loadList() {
     } catch (e) {
       state.files = [];
       $("listCount").textContent = "(chitin.key not found)";
+      return;
+    }
+  } else if (state.source === "saves") {
+    $("listTitle").textContent = "Save games";
+    $("kindGroup").style.display = "none";
+    try {
+      const data = await api(`/api/saves?install=${state.install}`);
+      state.files = data.saves.map(s => ({
+        name: s.pc_file ? `${s.folder}/${s.pc_file}` : s.folder,
+        display_name: s.display_name,
+        source: "saves",
+        folder: s.folder,
+        pc_file: s.pc_file,
+        category: "Saves",
+      }));
+    } catch (e) {
+      state.files = [];
+      $("listCount").textContent = "(no saves found)";
+      return;
     }
   }
   $("listCount").textContent = `${state.files.length}`;
@@ -274,8 +301,21 @@ function renderFileList() {
     budget -= slice.length;
     for (const f of slice) {
       const li = document.createElement("li");
+      li.classList.add("file-item");
       const left = document.createElement("span");
-      left.textContent = f.name;
+      left.className = "file-label";
+      if (f.display_name) {
+        const top = document.createElement("div");
+        top.className = "file-display-name";
+        top.textContent = f.display_name;
+        const sub = document.createElement("div");
+        sub.className = "file-sub";
+        sub.textContent = f.name;
+        left.appendChild(top);
+        left.appendChild(sub);
+      } else {
+        left.textContent = f.name;
+      }
       li.appendChild(left);
       if (f.source === "vanilla") {
         const btn = document.createElement("button");
@@ -284,6 +324,11 @@ function renderFileList() {
         btn.onclick = (e) => { e.stopPropagation(); extractVanilla(f.name); };
         li.appendChild(btn);
         li.onclick = () => extractVanilla(f.name);
+      } else if (f.source === "saves") {
+        if (state.current && state.current._saveKey === f.folder + "/" + f.pc_file) {
+          li.classList.add("active");
+        }
+        li.onclick = () => openSave(f.folder, f.pc_file);
       } else {
         if (state.current && state.current.name === f.name) li.classList.add("active");
         li.onclick = () => openFile(f.name);
@@ -319,6 +364,41 @@ async function extractVanilla(name) {
     $("saveStatus").textContent = "extract failed: " + e.message;
     $("saveStatus").className = "status err";
   }
+}
+
+async function openSave(folder, pcFile) {
+  if (!pcFile) {
+    $("saveStatus").textContent = "no party.bic in that save";
+    $("saveStatus").className = "status err";
+    return;
+  }
+  if (state.dirty.size > 0) {
+    if (!confirm("Unsaved changes will be lost. Continue?")) return;
+  }
+  const data = await api(
+    `/api/save_file?install=${state.install}` +
+    `&folder=${encodeURIComponent(folder)}&name=${encodeURIComponent(pcFile)}`
+  );
+  state.current = {
+    name: pcFile,
+    _saveKey: folder + "/" + pcFile,
+    _saveFolder: folder,
+    _saveFile: pcFile,
+    ...data,
+  };
+  state.dirty = new Set();
+  $("saveBtn").disabled = true;
+  $("saveStatus").textContent = "";
+  $("currentFile").textContent = data.display_name || pcFile;
+  $("currentInfo").textContent = `${data.doc._type.trim()}  ·  ${folder}/${pcFile}`;
+  $("schemaBar").style.display = "none";
+  if (!state.gffSchemaCache) state.gffSchemaCache = {};
+  if (!state.gffSchemaCache[data.gff_kind]) {
+    state.gffSchemaCache[data.gff_kind] = await api(`/api/gff_schema?kind=${data.gff_kind}`);
+  }
+  state.gffSchema = state.gffSchemaCache[data.gff_kind];
+  renderFileList();
+  renderGFF();
 }
 
 async function openFile(name) {
@@ -730,11 +810,18 @@ async function save() {
     } else {
       payload = { gff: state.current.doc };
     }
-    const res = await api(
-      `/api/file?install=${state.install}&name=${encodeURIComponent(state.current.name)}`,
-      { method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload) }
-    );
+    let url;
+    if (state.current._saveFolder) {
+      url = `/api/save_file?install=${state.install}` +
+            `&folder=${encodeURIComponent(state.current._saveFolder)}` +
+            `&name=${encodeURIComponent(state.current._saveFile)}`;
+    } else {
+      url = `/api/file?install=${state.install}&name=${encodeURIComponent(state.current.name)}`;
+    }
+    const res = await api(url, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
     state.dirty = new Set();
     $("saveStatus").textContent = "saved · " + (res.rows ? `${res.rows}×${res.columns}` : "ok");
     $("saveStatus").className = "status ok";
