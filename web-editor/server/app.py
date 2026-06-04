@@ -223,6 +223,187 @@ def list_saves(install: str):
     return {"saves_dir": str(saves_dir), "saves": out, "exists": True}
 
 
+PC_LOCATIONS = [
+    # (archive_chain, inner_resref, inner_extension, gff_path)
+    # archive_chain is a list of entry filenames to descend through inside
+    # SAVEGAME.sav. gff_path is the field path INSIDE that resource, e.g.
+    # "Mod_PlayerList[0]".
+    {"chain": ["END_M01AA.2057"], "entry": "Module", "ext": "ifo",
+     "path": "Mod_PlayerList[0]",
+     "description": "PC in Module.ifo Mod_PlayerList"},
+]
+
+
+def _module_sav_in(archive: erfmod.ERF) -> str | None:
+    """Find the nested module .sav inside SAVEGAME.sav (e.g. END_M01AA.2057)."""
+    for e in archive.entries:
+        if _is_erf_bytes(e.data):
+            return e.filename
+    return None
+
+
+def _resolve_gff_path(root: dict, path: str) -> tuple[dict, str]:
+    """Walk dotted path with [i] indexing, return (parent_struct, last_key).
+    For "Mod_PlayerList[0]" returns the list at root level and the index "0".
+    Actually we return the containing struct and a final-step descriptor.
+    """
+    # We support: "FieldName" or "FieldName[i]" or "A.B.C" etc.
+    parts: list[tuple[str, int | None]] = []
+    for raw in path.split("."):
+        m = raw.strip()
+        idx = None
+        if "[" in m and m.endswith("]"):
+            base, _, rest = m.partition("[")
+            idx = int(rest.rstrip("]"))
+            m = base
+        parts.append((m, idx))
+    node = root
+    for i, (label, idx) in enumerate(parts):
+        if i == len(parts) - 1:
+            return node, label if idx is None else f"{label}[{idx}]"
+        field = node[label]
+        if idx is None:
+            node = field["value"]
+        else:
+            node = field["value"][idx]
+    return node, ""
+
+
+def _get_at_path(root: dict, path: str) -> dict:
+    parent, key = _resolve_gff_path(root, path)
+    if "[" in key:
+        label, _, rest = key.partition("[")
+        idx = int(rest.rstrip("]"))
+        return parent[label]["value"][idx]
+    return parent[key]["value"] if isinstance(parent[key], dict) and "value" in parent[key] else parent[key]
+
+
+def _set_at_path(root: dict, path: str, new_struct: dict) -> None:
+    parent, key = _resolve_gff_path(root, path)
+    if "[" in key:
+        label, _, rest = key.partition("[")
+        idx = int(rest.rstrip("]"))
+        parent[label]["value"][idx] = new_struct
+    else:
+        parent[key]["value"] = new_struct
+
+
+def _find_pc_location(install: str, folder: str) -> dict | None:
+    """Locate the PC inside a save. Returns a descriptor or None."""
+    saves_dir = INSTALLS[install].get("saves")
+    if not saves_dir:
+        return None
+    save_path = saves_dir / folder / "SAVEGAME.sav"
+    if not save_path.exists():
+        return None
+    try:
+        top = erfmod.load(save_path)
+    except Exception:
+        return None
+    module_archive_name = _module_sav_in(top)
+    if not module_archive_name:
+        return None
+    # Find the Module.ifo entry
+    mod_entry = next((e for e in top.entries if e.filename == module_archive_name), None)
+    if not mod_entry:
+        return None
+    try:
+        inner = _erf_loads(mod_entry.data)
+    except Exception:
+        return None
+    ifo = next((e for e in inner.entries if e.filename.lower() == "module.ifo"), None)
+    if not ifo:
+        return None
+    try:
+        doc = gffmod.loads(ifo.data)
+    except Exception:
+        return None
+    root = doc["_struct"]
+    if "Mod_PlayerList" not in root:
+        return None
+    player_list = root["Mod_PlayerList"]["value"]
+    if not player_list:
+        return None
+    pc_struct = player_list[0]
+    return {
+        "archive": "SAVEGAME.sav",
+        "inner_chain": [module_archive_name],
+        "entry_resref": ifo.resref,
+        "entry_res_type": ifo.res_type,
+        "entry_extension": ifo.extension,
+        "gff_path": "Mod_PlayerList[0]",
+        "pc_struct": pc_struct,
+        "doc_type": doc["_type"],
+        "doc_version": doc["_version"],
+    }
+
+
+@app.get("/api/pc")
+def get_pc(install: str, folder: str):
+    """Return the player character struct, wrapped as a standalone GFF doc
+    so the existing editor renders it with the PC quick-edit form."""
+    loc = _find_pc_location(install, folder)
+    if not loc:
+        raise HTTPException(404, "Couldn't find a PC entry in this save")
+    # Wrap pc_struct as a top-level GFF doc with type "BIC " so the editor
+    # picks up the bic schema (which is what the PC fields match).
+    wrapper = {
+        "_type": "BIC ",
+        "_version": "V3.2",
+        "_struct": loc["pc_struct"],
+    }
+    display = _gff_display_name(install, "bic", wrapper)
+    return {
+        "kind": "gff",
+        "gff_kind": "bic",
+        "display_name": display,
+        "doc": wrapper,
+        "location": {
+            "archive": loc["archive"],
+            "inner_chain": loc["inner_chain"],
+            "entry_resref": loc["entry_resref"],
+            "entry_res_type": loc["entry_res_type"],
+            "gff_path": loc["gff_path"],
+        },
+    }
+
+
+@app.post("/api/pc")
+def save_pc(install: str, folder: str, body: SaveRequest):
+    """Patch the PC struct back into Module.ifo and propagate through all
+    archive levels."""
+    if body.gff is None:
+        raise HTTPException(400, "Missing gff payload")
+    loc = _find_pc_location(install, folder)
+    if not loc:
+        raise HTTPException(404, "Couldn't find a PC entry in this save")
+
+    save_path = INSTALLS[install]["saves"] / folder / "SAVEGAME.sav"
+    # Walk the chain, holding each level so we can rebuild it
+    top = erfmod.load(save_path)
+    module_archive_name = loc["inner_chain"][0]
+    module_entry = next(e for e in top.entries if e.filename == module_archive_name)
+    inner = _erf_loads(module_entry.data)
+    ifo_entry = next(
+        e for e in inner.entries
+        if e.resref.lower() == loc["entry_resref"].lower()
+        and e.res_type == loc["entry_res_type"]
+    )
+    doc = gffmod.loads(ifo_entry.data)
+    # Replace the PC struct at the configured path
+    _set_at_path(doc["_struct"], loc["gff_path"], body.gff["_struct"])
+    new_ifo_bytes = gffmod.dumps(doc)
+    erfmod.replace_entry(inner, ifo_entry.resref, ifo_entry.res_type, new_ifo_bytes)
+
+    new_module_bytes = erfmod.dumps(inner)
+    erfmod.replace_entry(top, module_entry.resref, module_entry.res_type, new_module_bytes)
+
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    shutil.copy2(save_path, save_path.with_suffix(save_path.suffix + f".bak.{stamp}"))
+    erfmod.save(save_path, top)
+    return {"saved": str(save_path)}
+
+
 @app.get("/api/save_files")
 def list_save_files(install: str, folder: str):
     if install not in INSTALLS:
@@ -235,6 +416,23 @@ def list_save_files(install: str, folder: str):
     if not folder_path.exists():
         raise HTTPException(404, f"Save folder not found: {folder}")
     files = []
+    # Synthesised PC entry at the top — lifts the actual character out of
+    # whichever nested archive it lives in.
+    loc = _find_pc_location(install, folder)
+    if loc:
+        wrapper = {
+            "_type": "BIC ",
+            "_version": "V3.2",
+            "_struct": loc["pc_struct"],
+        }
+        display = _gff_display_name(install, "bic", wrapper) or "Player Character"
+        files.append({
+            "name": "__PC__",
+            "label": f"Player Character — {display}",
+            "kind": "pc",
+            "size": 0,
+            "is_pc": True,
+        })
     for p in sorted(folder_path.iterdir()):
         if not p.is_file():
             continue
