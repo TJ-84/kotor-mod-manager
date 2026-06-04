@@ -44,14 +44,33 @@ STEAM_COMMON = HOME / "Library" / "Application Support" / "Steam" / "steamapps" 
 
 
 def _find_saves_dir(game_dir: Path, bundle: Path) -> Path:
-    """Probe likely macOS save locations for KOTOR."""
+    """Probe likely macOS save locations for KOTOR 1 and KOTOR 2."""
     candidates = [
+        # Inside the .app bundle (older Aspyr layouts)
         bundle / "Contents" / "KOTOR Data" / "saves",
         bundle / "Contents" / "Resources" / "saves",
-        HOME / "Documents" / "Knights of the Old Republic" / "saves",
+        # KOTOR 1 user save locations
         HOME / "Library" / "Application Support" / "Knights of the Old Republic" / "saves",
+        HOME / "Documents" / "Knights of the Old Republic" / "saves",
+        # KOTOR 2 user save locations (note the "Star Wars" prefix on Mac)
+        HOME / "Library" / "Application Support" / "Star Wars Knights of the Old Republic II" / "saves",
+        HOME / "Library" / "Application Support" / "Knights of the Old Republic II" / "saves",
+        HOME / "Documents" / "Star Wars Knights of the Old Republic II" / "saves",
+        HOME / "Documents" / "Knights of the Old Republic II" / "saves",
+        # Sandboxed Steam containers
         HOME / "Library" / "Containers" / "com.aspyr.kotor.steam" / "Data" / "Documents" / "saves",
+        HOME / "Library" / "Containers" / "com.aspyr.kotor2.steam" / "Data" / "Documents" / "saves",
     ]
+    # Use the install folder's game name to bias the probe order — prefer
+    # K2 paths if this is the K2 install dir.
+    if "II" in game_dir.name or "Sith" in game_dir.name:
+        k2_first = [c for c in candidates if "II" in str(c) or "Sith" in str(c)]
+        k1_only = [c for c in candidates if c not in k2_first]
+        candidates = k2_first + k1_only
+    else:
+        k1_first = [c for c in candidates if "II" not in str(c) and "Sith" not in str(c)]
+        k2_only = [c for c in candidates if c not in k1_first]
+        candidates = k1_first + k2_only
     for c in candidates:
         if c.exists():
             return c
