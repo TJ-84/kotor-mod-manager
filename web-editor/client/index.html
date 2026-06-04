@@ -92,6 +92,34 @@
   .gff-children { margin-left: 16px; border-left: 1px dashed var(--border); padding-left: 10px; }
   details > summary { cursor: pointer; user-select: none; padding: 2px 0; }
   details > summary:hover { color: var(--accent); }
+
+  /* Quick-edit form */
+  .qe { padding: 16px 22px; }
+  .qe h2 { font-size: 13px; margin: 18px 0 8px;
+    text-transform: uppercase; letter-spacing: 0.8px; color: var(--accent); }
+  .qe h2:first-child { margin-top: 0; }
+  .qe .display-name { font-size: 18px; font-weight: 600; color: var(--text);
+    margin-bottom: 4px; }
+  .qe .file-id { font-family: ui-monospace, Menlo, monospace; color: var(--muted);
+    font-size: 12px; margin-bottom: 18px; }
+  .qe-grid { display: grid; grid-template-columns: 200px 1fr; gap: 6px 12px;
+    margin-bottom: 8px; }
+  .qe-grid .lbl { color: var(--muted); padding-top: 5px; font-size: 12px; }
+  .qe-grid .lbl[title] { cursor: help; border-bottom: 1px dotted var(--muted); }
+  .qe-grid .ctl { display: flex; flex-direction: column; gap: 2px; }
+  .qe-grid input, .qe-grid select { width: 100%; max-width: 360px;
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 3px; padding: 4px 7px; font: inherit; }
+  .qe-grid input:focus, .qe-grid select:focus { border-color: var(--accent); outline: none; }
+  .qe-grid .ctl.dirty input, .qe-grid .ctl.dirty select { border-color: var(--accent); color: var(--accent); }
+  .qe-grid .strref { color: var(--accent-2); font-size: 11px; }
+  .qe-grid .help { color: var(--muted); font-size: 11px; font-style: italic; }
+  .qe-grid input[type=checkbox] { width: auto; }
+  .advanced-toggle { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+
+  /* Category groups in sidebar */
+  aside .cat-header { padding: 6px 8px 3px; color: var(--muted); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.6px; }
 </style>
 </head>
 <body>
@@ -197,13 +225,13 @@ async function loadList() {
     $("listTitle").textContent = "Files in Override";
     $("kindGroup").style.display = "none";
     const data = await api(`/api/files?install=${state.install}`);
-    state.files = data.files.map(f => ({ name: f, source: "override" }));
+    state.files = data.files.map(f => ({ ...f, source: "override" }));
   } else {
     $("listTitle").textContent = "Vanilla (in BIF)";
     $("kindGroup").style.display = "";
     try {
       const data = await api(`/api/vanilla?install=${state.install}&kind=${state.kind}`);
-      state.files = data.files.map(f => ({ name: f, source: "vanilla" }));
+      state.files = data.files.map(f => ({ ...f, source: "vanilla" }));
     } catch (e) {
       state.files = [];
       $("listCount").textContent = "(chitin.key not found)";
@@ -226,32 +254,49 @@ function renderFileList() {
     ul.appendChild(li);
     return;
   }
-  // Cap the rendered list — vanilla can be huge
-  const capped = items.slice(0, 500);
-  for (const f of capped) {
-    const li = document.createElement("li");
-    const left = document.createElement("span");
-    left.textContent = f.name;
-    li.appendChild(left);
-    if (f.source === "vanilla") {
-      const btn = document.createElement("button");
-      btn.className = "extract";
-      btn.textContent = "extract";
-      btn.onclick = (e) => { e.stopPropagation(); extractVanilla(f.name); };
-      li.appendChild(btn);
-      li.onclick = () => extractVanilla(f.name);
-    } else {
-      if (state.current && state.current.name === f.name) li.classList.add("active");
-      li.onclick = () => openFile(f.name);
-    }
-    ul.appendChild(li);
+  // Group by category
+  const groups = new Map();
+  for (const f of items) {
+    const cat = f.category || "Other";
+    if (!groups.has(cat)) groups.set(cat, []);
+    groups.get(cat).push(f);
   }
-  if (items.length > capped.length) {
-    const li = document.createElement("li");
-    li.textContent = `…${items.length - capped.length} more — narrow with filter`;
-    li.style.color = "var(--muted)";
-    li.style.cursor = "default";
-    ul.appendChild(li);
+  // Cap total rendered (vanilla can be huge)
+  let budget = 600;
+  for (const [cat, arr] of groups) {
+    if (budget <= 0) break;
+    const header = document.createElement("li");
+    header.className = "cat-header";
+    header.textContent = `${cat} (${arr.length})`;
+    header.style.cursor = "default";
+    ul.appendChild(header);
+    const slice = arr.slice(0, budget);
+    budget -= slice.length;
+    for (const f of slice) {
+      const li = document.createElement("li");
+      const left = document.createElement("span");
+      left.textContent = f.name;
+      li.appendChild(left);
+      if (f.source === "vanilla") {
+        const btn = document.createElement("button");
+        btn.className = "extract";
+        btn.textContent = "extract";
+        btn.onclick = (e) => { e.stopPropagation(); extractVanilla(f.name); };
+        li.appendChild(btn);
+        li.onclick = () => extractVanilla(f.name);
+      } else {
+        if (state.current && state.current.name === f.name) li.classList.add("active");
+        li.onclick = () => openFile(f.name);
+      }
+      ul.appendChild(li);
+    }
+    if (arr.length > slice.length) {
+      const li = document.createElement("li");
+      li.textContent = `  …${arr.length - slice.length} more`;
+      li.style.color = "var(--muted)";
+      li.style.cursor = "default";
+      ul.appendChild(li);
+    }
   }
 }
 
@@ -301,8 +346,19 @@ async function openFile(name) {
     }
     renderTwoDA();
   } else {
-    $("currentInfo").textContent = `GFF · ${data.doc._type.trim()} ${data.doc._version}`;
+    const dn = data.display_name;
+    $("currentFile").textContent = dn ? `${dn}` : name;
+    $("currentInfo").textContent =
+      `${data.doc._type.trim()}` + (dn ? `  ·  ${name}` : "");
     $("schemaBar").style.display = "none";
+    // Lazy-load the GFF schema for this kind
+    if (!state.gffSchemaCache) state.gffSchemaCache = {};
+    if (!state.gffSchemaCache[data.gff_kind]) {
+      state.gffSchemaCache[data.gff_kind] = await api(
+        `/api/gff_schema?kind=${data.gff_kind}`
+      );
+    }
+    state.gffSchema = state.gffSchemaCache[data.gff_kind];
     renderGFF();
   }
 }
@@ -382,10 +438,154 @@ const STRUCT_TYPE = 14, LIST_TYPE = 15, LOCSTR_TYPE = 12, VOID_TYPE = 13;
 function renderGFF() {
   const wrap = $("gridWrap");
   wrap.innerHTML = "";
-  const container = document.createElement("div");
-  container.className = "gff-tree";
-  container.appendChild(renderStruct(state.current.doc._struct, "", true));
-  wrap.appendChild(container);
+
+  const qe = document.createElement("div");
+  qe.className = "qe";
+
+  const sch = state.gffSchema && state.gffSchema.schema;
+  const enums = (state.gffSchema && state.gffSchema.enums) || {};
+  const root = state.current.doc._struct;
+
+  // Display name + filename header
+  if (state.current.display_name) {
+    const dn = document.createElement("div");
+    dn.className = "display-name";
+    dn.textContent = state.current.display_name;
+    qe.appendChild(dn);
+  }
+  const fid = document.createElement("div");
+  fid.className = "file-id";
+  fid.textContent = state.current.name;
+  qe.appendChild(fid);
+
+  if (sch && sch.sections) {
+    for (const section of sch.sections) {
+      const h = document.createElement("h2");
+      h.textContent = section.title;
+      qe.appendChild(h);
+      const grid = document.createElement("div");
+      grid.className = "qe-grid";
+      for (const f of section.fields) {
+        const entry = root[f.name];
+        if (!entry) continue;  // field not present in this file
+        // Label
+        const lbl = document.createElement("div");
+        lbl.className = "lbl";
+        lbl.textContent = f.label;
+        if (f.help) lbl.title = f.help;
+        grid.appendChild(lbl);
+        // Control
+        const ctl = document.createElement("div");
+        ctl.className = "ctl";
+        const ftype = entry.type;
+
+        if (f.kind === "list") {
+          const span = document.createElement("span");
+          span.className = "help";
+          span.textContent = `${entry.value.length} entries — see Advanced tree below`;
+          ctl.appendChild(span);
+        } else if (f.kind === "locstring") {
+          const subs = entry.value.substrings;
+          const inp = document.createElement("input");
+          inp.value = (subs && subs[0]) ? subs[0].text : "";
+          inp.placeholder = "(no inline text — uses dialog.tlk)";
+          inp.dataset.path = f.name;
+          inp.dataset.kind = "locstring";
+          inp.addEventListener("input", onGffEdit);
+          inp.addEventListener("input", () => ctl.classList.add("dirty"));
+          ctl.appendChild(inp);
+          const strref = entry.value.strref;
+          if (strref !== undefined && strref !== 0xFFFFFFFF) {
+            const sr = document.createElement("span");
+            sr.className = "strref";
+            sr.textContent = `StrRef ${strref}`;
+            sr.dataset.strref = strref;
+            ctl.appendChild(sr);
+            resolveStrRef(strref, sr);
+          }
+        } else if (f.kind === "bool") {
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.checked = !!entry.value;
+          cb.dataset.path = f.name;
+          cb.dataset.kind = "scalar";
+          cb.dataset.ftype = String(ftype);
+          cb.addEventListener("change", (e) => {
+            entry.value = e.target.checked ? 1 : 0;
+            state.dirty.add(f.name);
+            ctl.classList.add("dirty");
+            $("saveBtn").disabled = false;
+            $("saveStatus").textContent = `${state.dirty.size} unsaved field(s)`;
+          });
+          ctl.appendChild(cb);
+        } else if (f.kind === "enum") {
+          const opts = enums[f.enum] || {};
+          const sel = document.createElement("select");
+          // Always include the actual current value, even if unknown
+          const keys = new Set(Object.keys(opts));
+          keys.add(String(entry.value));
+          const sortedKeys = [...keys].sort((a, b) => +a - +b);
+          for (const k of sortedKeys) {
+            const o = document.createElement("option");
+            o.value = k;
+            o.textContent = opts[k] ? `${k} — ${opts[k]}` : `${k} (unknown)`;
+            if (+k === +entry.value) o.selected = true;
+            sel.appendChild(o);
+          }
+          sel.dataset.path = f.name;
+          sel.dataset.kind = "scalar";
+          sel.dataset.ftype = String(ftype);
+          sel.addEventListener("change", onGffEdit);
+          sel.addEventListener("change", () => ctl.classList.add("dirty"));
+          ctl.appendChild(sel);
+        } else {
+          const inp = document.createElement("input");
+          inp.value = String(entry.value);
+          if (f.min !== undefined || f.max !== undefined) {
+            inp.type = "number";
+            if (f.min !== undefined) inp.min = f.min;
+            if (f.max !== undefined) inp.max = f.max;
+          }
+          inp.dataset.path = f.name;
+          inp.dataset.kind = "scalar";
+          inp.dataset.ftype = String(ftype);
+          inp.addEventListener("input", onGffEdit);
+          inp.addEventListener("input", () => ctl.classList.add("dirty"));
+          ctl.appendChild(inp);
+        }
+
+        if (f.help && f.kind !== "list") {
+          const help = document.createElement("span");
+          help.className = "help";
+          help.textContent = f.help;
+          ctl.appendChild(help);
+        }
+        grid.appendChild(ctl);
+      }
+      qe.appendChild(grid);
+    }
+  }
+
+  // Advanced: full GFF tree
+  const adv = document.createElement("details");
+  adv.className = "advanced-toggle";
+  const sum = document.createElement("summary");
+  sum.innerHTML = `<strong>Advanced</strong>  <span style="color:var(--muted)">— full GFF tree (lists, nested structs, every field)</span>`;
+  adv.appendChild(sum);
+  const tree = document.createElement("div");
+  tree.className = "gff-tree";
+  tree.appendChild(renderStruct(state.current.doc._struct, "", false));
+  adv.appendChild(tree);
+  qe.appendChild(adv);
+
+  wrap.appendChild(qe);
+}
+
+async function resolveStrRef(strref, el) {
+  try {
+    const r = await api(`/api/strref?install=${state.install}&strref=${strref}`);
+    if (r.text) el.textContent = `StrRef ${strref}: "${r.text}"`;
+  } catch (e) { /* silent */ }
 }
 
 function renderStruct(node, pathPrefix, openByDefault) {

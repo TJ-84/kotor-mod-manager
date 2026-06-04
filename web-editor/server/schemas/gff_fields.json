@@ -1,0 +1,138 @@
+{
+  "utc": {
+    "_label": "Creature / NPC",
+    "_displayName": ["FirstName", "LastName"],
+    "sections": [
+      {
+        "title": "Identity",
+        "fields": [
+          { "name": "FirstName", "label": "First name", "kind": "locstring",
+            "help": "Display first name shown in-game." },
+          { "name": "LastName", "label": "Last name", "kind": "locstring",
+            "help": "Display last name shown in-game." },
+          { "name": "Tag", "label": "Tag", "kind": "string",
+            "help": "Internal tag used by scripts and dialog." },
+          { "name": "TemplateResRef", "label": "Template ResRef", "kind": "resref",
+            "help": "Base template this creature derives from." },
+          { "name": "Conversation", "label": "Conversation file", "kind": "resref",
+            "help": "ResRef of the .dlg file used when talking to this creature." },
+          { "name": "Description", "label": "Description (StrRef)", "kind": "locstring",
+            "help": "Flavor description." }
+        ]
+      },
+      {
+        "title": "Appearance",
+        "fields": [
+          { "name": "Appearance_Type", "label": "Appearance", "kind": "enum",
+            "enum": "appearance",
+            "help": "Row in appearance.2da — controls model + textures." },
+          { "name": "Gender", "label": "Gender", "kind": "enum", "enum": "gender" },
+          { "name": "Race", "label": "Race", "kind": "enum", "enum": "race" },
+          { "name": "SubRace", "label": "Subrace", "kind": "enum", "enum": "subrace" },
+          { "name": "PortraitId", "label": "Portrait ID", "kind": "int",
+            "help": "Row in portraits.2da." }
+        ]
+      },
+      {
+        "title": "Stats",
+        "fields": [
+          { "name": "Str", "label": "Strength", "kind": "int", "min": 1, "max": 50 },
+          { "name": "Dex", "label": "Dexterity", "kind": "int", "min": 1, "max": 50 },
+          { "name": "Con", "label": "Constitution", "kind": "int", "min": 1, "max": 50 },
+          { "name": "Int", "label": "Intelligence", "kind": "int", "min": 1, "max": 50 },
+          { "name": "Wis", "label": "Wisdom", "kind": "int", "min": 1, "max": 50 },
+          { "name": "Cha", "label": "Charisma", "kind": "int", "min": 1, "max": 50 },
+          { "name": "HitPoints", "label": "Base HP", "kind": "int",
+            "help": "Maximum HP before bonuses." },
+          { "name": "MaxHitPoints", "label": "Max HP (effective)", "kind": "int" },
+          { "name": "CurrentHitPoints", "label": "Current HP", "kind": "int" },
+          { "name": "ForcePoints", "label": "Max Force Points", "kind": "int" },
+          { "name": "CurrentForce", "label": "Current Force Points", "kind": "int" },
+          { "name": "NaturalAC", "label": "Natural AC bonus", "kind": "int" },
+          { "name": "fortbonus", "label": "Fortitude save bonus", "kind": "int" },
+          { "name": "refbonus", "label": "Reflex save bonus", "kind": "int" },
+          { "name": "willbonus", "label": "Will save bonus", "kind": "int" },
+          { "name": "ChallengeRating", "label": "Challenge rating", "kind": "float",
+            "help": "Used by XP scaling." }
+        ]
+      },
+      {
+        "title": "Behaviour & Faction",
+        "fields": [
+          { "name": "FactionID", "label": "Faction", "kind": "enum", "enum": "faction",
+            "help": "Allegiance — controls who attacks whom." },
+          { "name": "GoodEvil", "label": "Alignment (Good ↔ Evil)", "kind": "int",
+            "min": 0, "max": 100,
+            "help": "0 = pure dark side, 50 = neutral, 100 = pure light side." },
+          { "name": "PerceptionRange", "label": "Perception range", "kind": "enum",
+            "enum": "perception" },
+          { "name": "Plot", "label": "Plot-critical", "kind": "bool",
+            "help": "Plot-critical NPCs can't die — they fall unconscious." },
+          { "name": "IsImmortal", "label": "Immortal", "kind": "bool" },
+          { "name": "Disarmable", "label": "Disarmable", "kind": "bool" },
+          { "name": "Interruptable", "label": "Conversation interruptable", "kind": "bool" },
+          { "name": "NoPermDeath", "label": "Cannot permanently die", "kind": "bool" },
+          { "name": "BodyBag", "label": "Body bag", "kind": "enum", "enum": "bodybag",
+            "help": "What corpse type / loot container is left behind." }
+        ]
+      },
+      {
+        "title": "Combat",
+        "fields": [
+          { "name": "WalkRate", "label": "Walk rate", "kind": "int",
+            "help": "Row in creaturespeed.2da." },
+          { "name": "NoPermDeath", "label": "Never permadie", "kind": "bool" },
+          { "name": "MultiplierSet", "label": "Multiplier set", "kind": "int" },
+          { "name": "CRAdjust", "label": "CR adjust", "kind": "int" }
+        ]
+      }
+    ]
+  },
+  "uti": {
+    "_label": "Item",
+    "_displayName": ["LocalizedName"],
+    "sections": [
+      {
+        "title": "Identity",
+        "fields": [
+          { "name": "LocalizedName", "label": "Name", "kind": "locstring" },
+          { "name": "DescIdentified", "label": "Description (identified)", "kind": "locstring" },
+          { "name": "Description", "label": "Description (unidentified)", "kind": "locstring" },
+          { "name": "Tag", "label": "Tag", "kind": "string" },
+          { "name": "TemplateResRef", "label": "Template ResRef", "kind": "resref" }
+        ]
+      },
+      {
+        "title": "Appearance",
+        "fields": [
+          { "name": "BaseItem", "label": "Base item type", "kind": "int",
+            "help": "Row in baseitems.2da — determines weapon/armor category." },
+          { "name": "ModelVariation", "label": "Model variation", "kind": "int" },
+          { "name": "BodyVariation", "label": "Body variation (armor)", "kind": "int" },
+          { "name": "TextureVar", "label": "Texture variation", "kind": "int" },
+          { "name": "PaletteID", "label": "Palette ID", "kind": "int" }
+        ]
+      },
+      {
+        "title": "Economy & Plot",
+        "fields": [
+          { "name": "Cost", "label": "Cost (credits)", "kind": "int" },
+          { "name": "AdditionalCost", "label": "Additional cost", "kind": "int" },
+          { "name": "StackSize", "label": "Stack size", "kind": "int" },
+          { "name": "Charges", "label": "Charges", "kind": "int" },
+          { "name": "Stolen", "label": "Stolen", "kind": "bool" },
+          { "name": "Plot", "label": "Plot-critical", "kind": "bool",
+            "help": "Plot items can't be sold or dropped." },
+          { "name": "Identified", "label": "Identified", "kind": "bool" }
+        ]
+      },
+      {
+        "title": "Properties",
+        "fields": [
+          { "name": "PropertiesList", "label": "Item properties", "kind": "list",
+            "help": "Damage, on-hit effects, attribute bonuses, etc. Edit in the advanced tree below." }
+        ]
+      }
+    ]
+  }
+}

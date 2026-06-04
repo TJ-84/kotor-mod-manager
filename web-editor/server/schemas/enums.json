@@ -1,0 +1,66 @@
+{
+  "gender": {
+    "0": "Male", "1": "Female", "2": "Both", "3": "Other", "4": "None"
+  },
+  "race": {
+    "0": "Dwarf", "1": "Elf", "2": "Gnome", "3": "Halfling", "4": "Half-Elf",
+    "5": "Half-Orc", "6": "Human", "7": "All",
+    "24": "Droid", "25": "Human (KOTOR)"
+  },
+  "subrace": {
+    "0": "None", "1": "Wookiee", "2": "Twi'lek", "3": "Rodian", "4": "Mandalorian"
+  },
+  "faction": {
+    "0": "Invalid",
+    "1": "Hostile (attacks player on sight)",
+    "2": "Commoner (neutral, won't fight unless attacked)",
+    "3": "Merchant",
+    "4": "Predator",
+    "5": "Prey",
+    "6": "Trap",
+    "7": "Tuskan / Sand People",
+    "8": "GizkA",
+    "9": "Surrender",
+    "10": "Defender",
+    "11": "Insane",
+    "12": "Player (allied to PC)",
+    "13": "Jedi",
+    "14": "Czerka Corp",
+    "15": "Sith",
+    "16": "Republic Soldier",
+    "21": "Vulkar",
+    "22": "Hidden Bek",
+    "23": "Black Vulkar",
+    "24": "Beks"
+  },
+  "perception": {
+    "0": "Dead-eye",
+    "1": "Poor",
+    "2": "Low",
+    "3": "Normal",
+    "4": "High",
+    "5": "Eagle-eye",
+    "6": "Bat",
+    "7": "Hawk",
+    "8": "Dog",
+    "9": "Cat"
+  },
+  "bodybag": {
+    "0": "Disappear",
+    "1": "Body bag",
+    "2": "Lootable corpse",
+    "3": "Sith body"
+  },
+  "appearance": {
+    "0": "PC Body 0 (varies by class)",
+    "453": "Carth Onasi",
+    "454": "Bastila Shan",
+    "455": "Mission Vao",
+    "456": "Zaalbar",
+    "457": "T3-M4",
+    "458": "Canderous Ordo",
+    "459": "Juhani",
+    "460": "HK-47",
+    "461": "Jolee Bindo"
+  }
+}
