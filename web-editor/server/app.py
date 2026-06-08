@@ -308,7 +308,12 @@ def _set_at_path(root: dict, path: str, new_struct: dict) -> None:
 
 
 def _find_pc_location(install: str, folder: str) -> dict | None:
-    """Locate the PC inside a save. Returns a descriptor or None."""
+    """Locate the PC inside a save. Returns a descriptor or None.
+
+    K2 puts the PC as a top-level pc.utc inside SAVEGAME.sav.
+    K1 buries it inside the module archive's Module.ifo Mod_PlayerList.
+    We try the K2 layout first since it's simpler and more common in TSL.
+    """
     saves_dir = INSTALLS[install].get("saves")
     if not saves_dir:
         return None
@@ -319,10 +324,33 @@ def _find_pc_location(install: str, folder: str) -> dict | None:
         top = erfmod.load(save_path)
     except Exception:
         return None
+
+    # --- K2 layout: top-level pc.utc ---
+    pc_entry = next(
+        (e for e in top.entries if e.filename.lower() == "pc.utc"), None
+    )
+    if pc_entry:
+        try:
+            doc = gffmod.loads(pc_entry.data)
+        except Exception:
+            return None
+        return {
+            "layout": "top_level_pc_utc",
+            "archive": "SAVEGAME.sav",
+            "inner_chain": [],
+            "entry_resref": pc_entry.resref,
+            "entry_res_type": pc_entry.res_type,
+            "entry_extension": pc_entry.extension,
+            "gff_path": "",  # whole struct is the PC
+            "pc_struct": doc["_struct"],
+            "doc_type": doc["_type"],
+            "doc_version": doc["_version"],
+        }
+
+    # --- K1 layout: Module.ifo Mod_PlayerList[0] inside nested archive ---
     module_archive_name = _module_sav_in(top)
     if not module_archive_name:
         return None
-    # Find the Module.ifo entry
     mod_entry = next((e for e in top.entries if e.filename == module_archive_name), None)
     if not mod_entry:
         return None
@@ -343,15 +371,15 @@ def _find_pc_location(install: str, folder: str) -> dict | None:
     player_list = root["Mod_PlayerList"]["value"]
     if not player_list:
         return None
-    pc_struct = player_list[0]
     return {
+        "layout": "nested_module_ifo",
         "archive": "SAVEGAME.sav",
         "inner_chain": [module_archive_name],
         "entry_resref": ifo.resref,
         "entry_res_type": ifo.res_type,
         "entry_extension": ifo.extension,
         "gff_path": "Mod_PlayerList[0]",
-        "pc_struct": pc_struct,
+        "pc_struct": player_list[0],
         "doc_type": doc["_type"],
         "doc_version": doc["_version"],
     }
@@ -387,28 +415,19 @@ def get_pc(install: str, folder: str):
     }
 
 
-# Write safety: K2 SAVEGAME.sav corruption was reported on first beta.
-# Refuse to overwrite K2 saves until the GFF writer is byte-faithful enough
-# for TSL's stricter validation.
-K2_WRITE_DISABLED = True
-
-
+# Earlier the GFF reader silently dropped duplicate-labelled fields
+# (BonusForcePoints/AssignedPup/PlayerCreated appear twice in K2 PCs),
+# which corrupted K2 saves on write. Fixed in gff.py — duplicates now
+# preserved via "#N" internal suffix. Leaving the guard hook in place
+# in case we need to disable writes again on short notice.
 def _guard_k2_save_write(install: str) -> None:
-    if install == "K2" and K2_WRITE_DISABLED:
-        raise HTTPException(
-            403,
-            "K2 save writes are temporarily disabled — the GFF writer "
-            "isn't yet byte-faithful enough for TSL to accept the rewritten "
-            "archive. Editing here would corrupt the save. Restore from a "
-            ".bak file next to the modified SAVEGAME.sav.",
-        )
+    pass
 
 
 @app.post("/api/pc")
 def save_pc(install: str, folder: str, body: SaveRequest):
-    """Patch the PC struct back into Module.ifo and propagate through all
-    archive levels."""
-    _guard_k2_save_write(install)
+    """Save the edited PC back to disk. Handles K2 (top-level pc.utc) and
+    K1 (nested Module.ifo Mod_PlayerList) layouts."""
     if body.gff is None:
         raise HTTPException(400, "Missing gff payload")
     loc = _find_pc_location(install, folder)
@@ -416,24 +435,33 @@ def save_pc(install: str, folder: str, body: SaveRequest):
         raise HTTPException(404, "Couldn't find a PC entry in this save")
 
     save_path = INSTALLS[install]["saves"] / folder / "SAVEGAME.sav"
-    # Walk the chain, holding each level so we can rebuild it
     top = erfmod.load(save_path)
-    module_archive_name = loc["inner_chain"][0]
-    module_entry = next(e for e in top.entries if e.filename == module_archive_name)
-    inner = _erf_loads(module_entry.data)
-    ifo_entry = next(
-        e for e in inner.entries
-        if e.resref.lower() == loc["entry_resref"].lower()
-        and e.res_type == loc["entry_res_type"]
-    )
-    doc = gffmod.loads(ifo_entry.data)
-    # Replace the PC struct at the configured path
-    _set_at_path(doc["_struct"], loc["gff_path"], body.gff["_struct"])
-    new_ifo_bytes = gffmod.dumps(doc)
-    erfmod.replace_entry(inner, ifo_entry.resref, ifo_entry.res_type, new_ifo_bytes)
 
-    new_module_bytes = erfmod.dumps(inner)
-    erfmod.replace_entry(top, module_entry.resref, module_entry.res_type, new_module_bytes)
+    if loc["layout"] == "top_level_pc_utc":
+        # Wrap the edited struct as a UTC and replace the entry directly.
+        new_pc = {
+            "_type": loc["doc_type"],
+            "_version": loc["doc_version"],
+            "_struct": body.gff["_struct"],
+        }
+        new_bytes = gffmod.dumps(new_pc)
+        erfmod.replace_entry(top, loc["entry_resref"], loc["entry_res_type"], new_bytes)
+    else:
+        # K1: walk into module archive, modify Module.ifo, repack
+        module_archive_name = loc["inner_chain"][0]
+        module_entry = next(e for e in top.entries if e.filename == module_archive_name)
+        inner = _erf_loads(module_entry.data)
+        ifo_entry = next(
+            e for e in inner.entries
+            if e.resref.lower() == loc["entry_resref"].lower()
+            and e.res_type == loc["entry_res_type"]
+        )
+        doc = gffmod.loads(ifo_entry.data)
+        _set_at_path(doc["_struct"], loc["gff_path"], body.gff["_struct"])
+        new_ifo_bytes = gffmod.dumps(doc)
+        erfmod.replace_entry(inner, ifo_entry.resref, ifo_entry.res_type, new_ifo_bytes)
+        new_module_bytes = erfmod.dumps(inner)
+        erfmod.replace_entry(top, module_entry.resref, module_entry.res_type, new_module_bytes)
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     shutil.copy2(save_path, save_path.with_suffix(save_path.suffix + f".bak.{stamp}"))

@@ -225,13 +225,9 @@ function updateInstallStatus() {
   const bits = [];
   bits.push(`Override: ${i.exists ? "✓" : "missing"}`);
   bits.push(`chitin.key: ${i.data_exists ? "✓" : "missing"}`);
-  if (state.install === "K2") {
-    bits.unshift("⚠ K2 saves are READ-ONLY (write disabled to prevent corruption)");
-  }
   $("installStatus").textContent = bits.join("  ·  ") + "  ·  " + i.override;
   $("installStatus").className =
-    "status" + (state.install === "K2" ? " err"
-                : (i.exists || i.data_exists ? " ok" : " err"));
+    "status" + (i.exists || i.data_exists ? " ok" : " err");
 }
 
 async function loadList() {

@@ -112,7 +112,16 @@ def _parse(raw: bytes) -> dict:
         for fi in field_indices:
             ftype, label_idx, dval = fields[fi]
             label = labels[label_idx]
-            out[label] = {"type": ftype, "value": read_field_value(ftype, dval)}
+            # KOTOR's GFFs sometimes repeat the same label at the same struct
+            # level (e.g. BonusForcePoints, AssignedPup, PlayerCreated). To
+            # represent that in a plain dict we suffix duplicates with #N.
+            # The writer strips the suffix back off before emitting.
+            final_label = label
+            n = 1
+            while final_label in out:
+                final_label = f"{label}#{n}"
+                n += 1
+            out[final_label] = {"type": ftype, "value": read_field_value(ftype, dval)}
         return out
 
     def read_field_value(ftype: int, dval: int) -> Any:
@@ -279,7 +288,9 @@ def dumps(gff: dict) -> bytes:
             fid = len(fields)
             fields.append((0, 0, 0))  # placeholder
             dval = write_field_value(ftype, value)
-            fields[fid] = (ftype, label_index(label), dval)
+            # Strip our internal duplicate-label suffix before writing
+            real_label = label.split("#", 1)[0]
+            fields[fid] = (ftype, label_index(real_label), dval)
             field_ids.append(fid)
 
         if len(field_ids) == 1:
