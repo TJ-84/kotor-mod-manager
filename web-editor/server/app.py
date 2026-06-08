@@ -325,11 +325,52 @@ def _find_pc_location(install: str, folder: str) -> dict | None:
     except Exception:
         return None
 
-    # --- K2 layout: top-level pc.utc ---
+    # --- K2 layout: top-level pc.utc, MIRRORED into Module.ifo Mod_PlayerList[0] ---
+    # K2 saves keep the PC in both places. Detection prefers the nested
+    # Mod_PlayerList[0] (the game reads from it on load), but we surface a
+    # combined view so writes will patch both copies.
+    module_archive_name = _module_sav_in(top)
+    mirrored = bool(module_archive_name)
+
     pc_entry = next(
         (e for e in top.entries if e.filename.lower() == "pc.utc"), None
     )
+
+    if pc_entry and mirrored:
+        # Both exist — the K2 case. Read Module.ifo's Mod_PlayerList[0] since
+        # that's authoritative at load time.
+        mod_entry = next(e for e in top.entries if e.filename == module_archive_name)
+        try:
+            inner = _erf_loads(mod_entry.data)
+            ifo = next(
+                (e for e in inner.entries if e.filename.lower() == "module.ifo"),
+                None,
+            )
+            if ifo:
+                doc = gffmod.loads(ifo.data)
+                root = doc["_struct"]
+                if "Mod_PlayerList" in root and root["Mod_PlayerList"]["value"]:
+                    return {
+                        "layout": "k2_dual",
+                        "archive": "SAVEGAME.sav",
+                        "module_archive": module_archive_name,
+                        "inner_chain": [module_archive_name],
+                        "pc_resref": pc_entry.resref,
+                        "pc_res_type": pc_entry.res_type,
+                        "module_ifo_resref": ifo.resref,
+                        "module_ifo_res_type": ifo.res_type,
+                        "entry_resref": ifo.resref,
+                        "entry_res_type": ifo.res_type,
+                        "gff_path": "Mod_PlayerList[0]",
+                        "pc_struct": root["Mod_PlayerList"]["value"][0],
+                        "doc_type": doc["_type"],
+                        "doc_version": doc["_version"],
+                    }
+        except Exception:
+            pass
+
     if pc_entry:
+        # Just a top-level pc.utc, no nested mirror — rare but possible
         try:
             doc = gffmod.loads(pc_entry.data)
         except Exception:
@@ -341,14 +382,13 @@ def _find_pc_location(install: str, folder: str) -> dict | None:
             "entry_resref": pc_entry.resref,
             "entry_res_type": pc_entry.res_type,
             "entry_extension": pc_entry.extension,
-            "gff_path": "",  # whole struct is the PC
+            "gff_path": "",
             "pc_struct": doc["_struct"],
             "doc_type": doc["_type"],
             "doc_version": doc["_version"],
         }
 
-    # --- K1 layout: Module.ifo Mod_PlayerList[0] inside nested archive ---
-    module_archive_name = _module_sav_in(top)
+    # --- K1 layout: nested Module.ifo Mod_PlayerList only ---
     if not module_archive_name:
         return None
     mod_entry = next((e for e in top.entries if e.filename == module_archive_name), None)
@@ -437,8 +477,36 @@ def save_pc(install: str, folder: str, body: SaveRequest):
     save_path = INSTALLS[install]["saves"] / folder / "SAVEGAME.sav"
     top = erfmod.load(save_path)
 
-    if loc["layout"] == "top_level_pc_utc":
-        # Wrap the edited struct as a UTC and replace the entry directly.
+    if loc["layout"] == "k2_dual":
+        # K2 saves keep the PC in two places — the game reads
+        # Module.ifo's Mod_PlayerList[0] at load time, but pc.utc must
+        # also match (some sub-systems read from there). Patch both.
+        new_struct = body.gff["_struct"]
+
+        # 1) Replace pc.utc with a fresh UTC wrapping the new struct
+        pc_entry = next(e for e in top.entries if e.resref.lower() == loc["pc_resref"].lower())
+        pc_doc = gffmod.loads(pc_entry.data)
+        pc_doc["_struct"] = new_struct
+        new_pc_bytes = gffmod.dumps(pc_doc)
+        erfmod.replace_entry(top, pc_entry.resref, pc_entry.res_type, new_pc_bytes)
+
+        # 2) Walk into the module archive, replace Mod_PlayerList[0] in Module.ifo
+        module_entry = next(e for e in top.entries if e.filename == loc["module_archive"])
+        inner = _erf_loads(module_entry.data)
+        ifo_entry = next(
+            e for e in inner.entries
+            if e.resref.lower() == loc["module_ifo_resref"].lower()
+            and e.res_type == loc["module_ifo_res_type"]
+        )
+        ifo_doc = gffmod.loads(ifo_entry.data)
+        _set_at_path(ifo_doc["_struct"], loc["gff_path"], new_struct)
+        new_ifo_bytes = gffmod.dumps(ifo_doc)
+        erfmod.replace_entry(inner, ifo_entry.resref, ifo_entry.res_type, new_ifo_bytes)
+        new_module_bytes = erfmod.dumps(inner)
+        erfmod.replace_entry(top, module_entry.resref, module_entry.res_type, new_module_bytes)
+
+    elif loc["layout"] == "top_level_pc_utc":
+        # Rare case: only the top-level pc.utc exists
         new_pc = {
             "_type": loc["doc_type"],
             "_version": loc["doc_version"],
