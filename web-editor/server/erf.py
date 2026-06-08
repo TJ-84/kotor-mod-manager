@@ -82,6 +82,8 @@ class ERF:
     file_type: str = "ERF "      # 4 chars
     version: str = "V1.0"
     description_strref: int = 0xFFFFFFFF
+    build_year: int = 125         # preserved from original on load
+    build_day: int = 1
     # Localized description strings: language_id -> text
     localized: Dict[int, str] = field(default_factory=dict)
     entries: List[ErfEntry] = field(default_factory=list)
@@ -107,7 +109,13 @@ def load(path: Path) -> ERF:
         build_year, build_day, desc_strref,
     ) = struct.unpack_from("<9I", raw, 8)
 
-    erf = ERF(file_type=file_type, version=version, description_strref=desc_strref)
+    erf = ERF(
+        file_type=file_type,
+        version=version,
+        description_strref=desc_strref,
+        build_year=build_year,
+        build_day=build_day,
+    )
 
     # Localized strings
     pos = locstr_off
@@ -175,7 +183,7 @@ def dumps(erf: ERF) -> bytes:
             "<9I",
             language_count, len(loc_block), n,
             locstr_off, keylist_off, reslist_off,
-            125, 1,
+            erf.build_year, erf.build_day,
             erf.description_strref & 0xFFFFFFFF,
         )
         + b"\x00" * 116

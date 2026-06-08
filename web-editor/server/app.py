@@ -154,6 +154,16 @@ def _resolve_override(install: str, name: str) -> Path:
     return INSTALLS[install]["override"] / name
 
 
+def _backup_path(p: Path) -> Path:
+    """Where to stash a backup of a file. We tuck them in a hidden
+    .editor_backups/ subdir alongside the file so they can't possibly be
+    enumerated by KOTOR's save folder scanning."""
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_dir = p.parent / ".editor_backups"
+    backup_dir.mkdir(exist_ok=True)
+    return backup_dir / f"{p.name}.bak.{stamp}"
+
+
 @app.get("/api/installs")
 def list_installs():
     out = []
@@ -532,7 +542,7 @@ def save_pc(install: str, folder: str, body: SaveRequest):
         erfmod.replace_entry(top, module_entry.resref, module_entry.res_type, new_module_bytes)
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    shutil.copy2(save_path, save_path.with_suffix(save_path.suffix + f".bak.{stamp}"))
+    shutil.copy2(save_path, _backup_path(save_path))
     erfmod.save(save_path, top)
     return {"saved": str(save_path)}
 
@@ -638,7 +648,7 @@ def write_save_file(install: str, folder: str, name: str, body: SaveRequest):
     if body.gff is None:
         raise HTTPException(400, "Missing gff payload")
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    shutil.copy2(p, p.with_suffix(p.suffix + f".bak.{stamp}"))
+    shutil.copy2(p, _backup_path(p))
     try:
         gffmod.save(p, body.gff)
     except Exception as e:
@@ -831,7 +841,7 @@ def write_save_archive_entry(
                 break
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    shutil.copy2(p, p.with_suffix(p.suffix + f".bak.{stamp}"))
+    shutil.copy2(p, _backup_path(p))
     try:
         erfmod.save(p, levels[0])
     except Exception as e:
@@ -987,8 +997,7 @@ def extract_vanilla(install: str, kind: str, name: str):
 
     target = override / name
     if target.exists():
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        shutil.copy2(target, target.with_suffix(target.suffix + f".bak.{stamp}"))
+        shutil.copy2(target, _backup_path(target))
     target.write_bytes(data)
     return {"extracted": str(target), "size": len(data)}
 
@@ -1123,8 +1132,7 @@ def write_file(install: str, name: str, body: SaveRequest):
     ext = path.suffix.lower()
 
     if path.exists():
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        shutil.copy2(path, path.with_suffix(path.suffix + f".bak.{stamp}"))
+        shutil.copy2(path, _backup_path(path))
 
     if ext == ".2da":
         if body.twoda is None:
