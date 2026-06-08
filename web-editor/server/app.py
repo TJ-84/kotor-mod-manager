@@ -387,10 +387,28 @@ def get_pc(install: str, folder: str):
     }
 
 
+# Write safety: K2 SAVEGAME.sav corruption was reported on first beta.
+# Refuse to overwrite K2 saves until the GFF writer is byte-faithful enough
+# for TSL's stricter validation.
+K2_WRITE_DISABLED = True
+
+
+def _guard_k2_save_write(install: str) -> None:
+    if install == "K2" and K2_WRITE_DISABLED:
+        raise HTTPException(
+            403,
+            "K2 save writes are temporarily disabled — the GFF writer "
+            "isn't yet byte-faithful enough for TSL to accept the rewritten "
+            "archive. Editing here would corrupt the save. Restore from a "
+            ".bak file next to the modified SAVEGAME.sav.",
+        )
+
+
 @app.post("/api/pc")
 def save_pc(install: str, folder: str, body: SaveRequest):
     """Patch the PC struct back into Module.ifo and propagate through all
     archive levels."""
+    _guard_k2_save_write(install)
     if body.gff is None:
         raise HTTPException(400, "Missing gff payload")
     loc = _find_pc_location(install, folder)
@@ -519,6 +537,7 @@ def read_save_file(install: str, folder: str, name: str):
 
 @app.post("/api/save_file")
 def write_save_file(install: str, folder: str, name: str, body: SaveRequest):
+    _guard_k2_save_write(install)
     p = _resolve_save_file(install, folder, name)
     if body.gff is None:
         raise HTTPException(400, "Missing gff payload")
@@ -671,6 +690,7 @@ def write_save_archive_entry(
     install: str, folder: str, archive: str, resref: str, res_type: int,
     body: SaveRequest, inner: str = "",
 ):
+    _guard_k2_save_write(install)
     p = _resolve_save_file(install, folder, archive)
     if body.gff is None:
         raise HTTPException(400, "Missing gff payload")
