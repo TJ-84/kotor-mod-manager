@@ -484,6 +484,8 @@ def save_pc(install: str, folder: str, body: SaveRequest):
     if not loc:
         raise HTTPException(404, "Couldn't find a PC entry in this save")
 
+    _validate_gff_against_schema("bic", body.gff)
+
     save_path = INSTALLS[install]["saves"] / folder / "SAVEGAME.sav"
     top = erfmod.load(save_path)
 
@@ -576,8 +578,40 @@ def list_save_files(install: str, folder: str):
             "size": 0,
             "is_pc": True,
         })
+
+    # Companion / party member shortcuts — scan SAVEGAME.sav for AVAILNPC*.utc
+    save_path = folder_path / "SAVEGAME.sav"
+    if save_path.exists():
+        try:
+            top = erfmod.load(save_path)
+            for e in top.entries:
+                if e.filename.lower().startswith("availnpc") and e.filename.lower().endswith(".utc"):
+                    try:
+                        doc = gffmod.loads(e.data)
+                        npc_name = _gff_display_name(install, "utc", doc) or e.resref
+                    except Exception:
+                        npc_name = e.resref
+                    files.append({
+                        "name": f"__NPC__:{e.resref}",
+                        "label": f"Party — {npc_name}",
+                        "kind": "npc",
+                        "size": len(e.data),
+                        "is_npc": True,
+                        "npc_resref": e.resref,
+                        "npc_res_type": e.res_type,
+                    })
+        except Exception:
+            pass  # fall through silently — main listing still works
+    # Suffixes we deliberately hide from the listing — none of these are editable
+    # and they just clutter the sidebar (macOS junk, save screenshot).
+    HIDDEN_NAMES = {".ds_store"}
+    HIDDEN_SUFFIXES = {".tga", ".jpg", ".png"}
     for p in sorted(folder_path.iterdir()):
         if not p.is_file():
+            continue
+        if p.name.lower() in HIDDEN_NAMES or p.suffix.lower() in HIDDEN_SUFFIXES:
+            continue
+        if p.name.startswith("."):  # skip hidden dotfiles
             continue
         label, kind = _classify_save_file(p.name)
         files.append({
@@ -647,7 +681,7 @@ def write_save_file(install: str, folder: str, name: str, body: SaveRequest):
     p = _resolve_save_file(install, folder, name)
     if body.gff is None:
         raise HTTPException(400, "Missing gff payload")
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    _validate_gff_against_schema(_gff_kind_for_save_file(name), body.gff)
     shutil.copy2(p, _backup_path(p))
     try:
         gffmod.save(p, body.gff)
@@ -800,6 +834,8 @@ def write_save_archive_entry(
     p = _resolve_save_file(install, folder, archive)
     if body.gff is None:
         raise HTTPException(400, "Missing gff payload")
+    # Pick schema kind from the entry's extension (UTC/UTI/etc.)
+    _validate_gff_against_schema(erfmod.RES_EXT.get(res_type, ""), body.gff)
     inner_path = _split_inner(inner)
     # Load every level so we can rewrite all the way back up
     try:
@@ -1156,6 +1192,40 @@ def write_file(install: str, name: str, body: SaveRequest):
 _schema_cache: dict | None = None
 _gff_schema_cache: dict | None = None
 _enums_cache: dict | None = None
+
+
+def _validate_gff_against_schema(gff_kind: str, doc: dict) -> None:
+    """Raise HTTPException with field details if any value is out of the
+    schema-declared safe range. This catches user typos before they hit
+    the writer's silent-wrap-into-corruption code path."""
+    global _gff_schema_cache
+    if _gff_schema_cache is None:
+        _gff_schema_cache = json.loads(GFF_SCHEMA_PATH.read_text())
+    sch = _gff_schema_cache.get(gff_kind.lower(), {})
+    if not sch:
+        return
+    root = doc.get("_struct", {})
+    errors = []
+    for section in sch.get("sections", []):
+        for fdef in section.get("fields", []):
+            name = fdef["name"]
+            entry = root.get(name)
+            if not entry:
+                continue
+            value = entry.get("value")
+            lo = fdef.get("min")
+            hi = fdef.get("max")
+            if (lo is not None or hi is not None) and isinstance(value, (int, float)):
+                if lo is not None and value < lo:
+                    errors.append(f"{fdef['label']} ({name}) = {value} below minimum {lo}")
+                if hi is not None and value > hi:
+                    errors.append(f"{fdef['label']} ({name}) = {value} above maximum {hi}")
+    if errors:
+        raise HTTPException(
+            400,
+            "Refusing to write — values out of safe range would corrupt the save:\n"
+            + "\n".join(f"  • {e}" for e in errors),
+        )
 
 
 @app.get("/api/schema")

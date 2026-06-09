@@ -34,26 +34,41 @@
         ]
       },
       {
-        "title": "Stats",
+        "title": "Attributes",
         "fields": [
-          { "name": "Str", "label": "Strength", "kind": "int", "min": 1, "max": 50 },
-          { "name": "Dex", "label": "Dexterity", "kind": "int", "min": 1, "max": 50 },
-          { "name": "Con", "label": "Constitution", "kind": "int", "min": 1, "max": 50 },
-          { "name": "Int", "label": "Intelligence", "kind": "int", "min": 1, "max": 50 },
-          { "name": "Wis", "label": "Wisdom", "kind": "int", "min": 1, "max": 50 },
-          { "name": "Cha", "label": "Charisma", "kind": "int", "min": 1, "max": 50 },
-          { "name": "HitPoints", "label": "Base HP", "kind": "int",
-            "help": "Maximum HP before bonuses." },
-          { "name": "MaxHitPoints", "label": "Max HP (effective)", "kind": "int" },
-          { "name": "CurrentHitPoints", "label": "Current HP", "kind": "int" },
-          { "name": "ForcePoints", "label": "Max Force Points", "kind": "int" },
-          { "name": "CurrentForce", "label": "Current Force Points", "kind": "int" },
-          { "name": "NaturalAC", "label": "Natural AC bonus", "kind": "int" },
-          { "name": "fortbonus", "label": "Fortitude save bonus", "kind": "int" },
-          { "name": "refbonus", "label": "Reflex save bonus", "kind": "int" },
-          { "name": "willbonus", "label": "Will save bonus", "kind": "int" },
+          { "name": "Str", "label": "Strength", "kind": "int", "min": 3, "max": 50 },
+          { "name": "Dex", "label": "Dexterity", "kind": "int", "min": 3, "max": 50 },
+          { "name": "Con", "label": "Constitution", "kind": "int", "min": 3, "max": 50 },
+          { "name": "Int", "label": "Intelligence", "kind": "int", "min": 3, "max": 50 },
+          { "name": "Wis", "label": "Wisdom", "kind": "int", "min": 3, "max": 50 },
+          { "name": "Cha", "label": "Charisma", "kind": "int", "min": 3, "max": 50 }
+        ]
+      },
+      {
+        "title": "Hit Points & Force",
+        "fields": [
+          { "name": "HitPoints", "label": "Base HP", "kind": "int", "min": 0, "max": 9999 },
+          { "name": "MaxHitPoints", "label": "Max HP (effective)", "kind": "int", "min": 0, "max": 9999 },
+          { "name": "CurrentHitPoints", "label": "Current HP", "kind": "int", "min": 0, "max": 9999 },
+          { "name": "ForcePoints", "label": "Max Force Points", "kind": "int", "min": 0, "max": 9999 },
+          { "name": "CurrentForce", "label": "Current Force Points", "kind": "int", "min": 0, "max": 9999 }
+        ]
+      },
+      {
+        "title": "Defenses",
+        "fields": [
+          { "name": "NaturalAC", "label": "Natural AC bonus", "kind": "int", "min": 0, "max": 50 },
+          { "name": "fortbonus", "label": "Fortitude save bonus", "kind": "int", "min": -50, "max": 50 },
+          { "name": "refbonus", "label": "Reflex save bonus", "kind": "int", "min": -50, "max": 50 },
+          { "name": "willbonus", "label": "Will save bonus", "kind": "int", "min": -50, "max": 50 },
           { "name": "ChallengeRating", "label": "Challenge rating", "kind": "float",
             "help": "Used by XP scaling." }
+        ]
+      },
+      {
+        "title": "Experience",
+        "fields": [
+          { "name": "Experience", "label": "Experience (XP)", "kind": "int", "min": 0, "max": 9999999 }
         ]
       },
       {
@@ -95,13 +110,13 @@
       {
         "title": "Party-wide state",
         "fields": [
-          { "name": "PT_GOLD", "label": "Credits", "kind": "int",
-            "help": "Party credits. Set to whatever you want." },
-          { "name": "PT_XP_POOL", "label": "XP pool", "kind": "int",
+          { "name": "PT_GOLD", "label": "Credits", "kind": "int", "min": 0, "max": 999999999,
+            "help": "Party credits. UI breaks past ~1 billion." },
+          { "name": "PT_XP_POOL", "label": "XP pool", "kind": "int", "min": 0, "max": 9999999,
             "help": "Unspent XP waiting for the next level-up." },
-          { "name": "PT_PLAYEDSECONDS", "label": "Played time (seconds)", "kind": "int" },
-          { "name": "PT_NUM_MEMBERS", "label": "Party member count", "kind": "int",
-            "help": "Don't exceed 3 (PC + 2 companions). Game will misbehave." },
+          { "name": "PT_PLAYEDSECONDS", "label": "Played time (seconds)", "kind": "int", "min": 0, "max": 999999999 },
+          { "name": "PT_NUM_MEMBERS", "label": "Party member count", "kind": "int", "min": 1, "max": 3,
+            "help": "PC + up to 2 companions. Don't exceed 3." },
           { "name": "PT_SOLOMODE", "label": "Solo mode", "kind": "bool" },
           { "name": "PT_CHEAT_USED", "label": "Cheats used (achievement flag)", "kind": "bool",
             "help": "Set by the game whenever you use a cheat. Flip back to 0 to undo." },
@@ -160,63 +175,58 @@
         "fields": [
           { "name": "FirstName", "label": "First name", "kind": "locstring" },
           { "name": "LastName", "label": "Last name", "kind": "locstring" },
-          { "name": "Tag", "label": "Tag", "kind": "string" },
-          { "name": "Description", "label": "Description", "kind": "locstring" }
+          { "name": "Tag", "label": "Tag", "kind": "string" }
         ]
       },
       {
-        "title": "Appearance",
+        "title": "Attributes",
         "fields": [
-          { "name": "Appearance_Type", "label": "Appearance", "kind": "enum",
-            "enum": "appearance" },
-          { "name": "Gender", "label": "Gender", "kind": "enum", "enum": "gender" },
-          { "name": "Race", "label": "Race", "kind": "enum", "enum": "race" },
-          { "name": "SubRace", "label": "Subrace", "kind": "enum", "enum": "subrace" },
-          { "name": "PortraitId", "label": "Portrait ID", "kind": "int" }
+          { "name": "Str", "label": "Strength", "kind": "int", "min": 3, "max": 50,
+            "help": "Vanilla cap is around 25 (with buffs); 50 is the engine ceiling." },
+          { "name": "Dex", "label": "Dexterity", "kind": "int", "min": 3, "max": 50 },
+          { "name": "Con", "label": "Constitution", "kind": "int", "min": 3, "max": 50 },
+          { "name": "Int", "label": "Intelligence", "kind": "int", "min": 3, "max": 50 },
+          { "name": "Wis", "label": "Wisdom", "kind": "int", "min": 3, "max": 50 },
+          { "name": "Cha", "label": "Charisma", "kind": "int", "min": 3, "max": 50 }
         ]
       },
       {
-        "title": "Stats",
+        "title": "Hit Points & Force",
         "fields": [
-          { "name": "Str", "label": "Strength", "kind": "int", "min": 1, "max": 50 },
-          { "name": "Dex", "label": "Dexterity", "kind": "int", "min": 1, "max": 50 },
-          { "name": "Con", "label": "Constitution", "kind": "int", "min": 1, "max": 50 },
-          { "name": "Int", "label": "Intelligence", "kind": "int", "min": 1, "max": 50 },
-          { "name": "Wis", "label": "Wisdom", "kind": "int", "min": 1, "max": 50 },
-          { "name": "Cha", "label": "Charisma", "kind": "int", "min": 1, "max": 50 },
-          { "name": "HitPoints", "label": "Base HP", "kind": "int" },
-          { "name": "MaxHitPoints", "label": "Max HP (effective)", "kind": "int" },
-          { "name": "CurrentHitPoints", "label": "Current HP", "kind": "int" },
-          { "name": "ForcePoints", "label": "Max Force Points", "kind": "int" },
-          { "name": "CurrentForce", "label": "Current Force Points", "kind": "int" },
-          { "name": "NaturalAC", "label": "Natural AC bonus", "kind": "int" },
-          { "name": "fortbonus", "label": "Fortitude save bonus", "kind": "int" },
-          { "name": "refbonus", "label": "Reflex save bonus", "kind": "int" },
-          { "name": "willbonus", "label": "Will save bonus", "kind": "int" },
-          { "name": "Experience", "label": "Experience (XP)", "kind": "int",
-            "help": "Total XP earned. Higher than next-level threshold triggers a level-up on next gain." }
+          { "name": "HitPoints", "label": "Base HP", "kind": "int", "min": 0, "max": 9999 },
+          { "name": "MaxHitPoints", "label": "Max HP (effective)", "kind": "int", "min": 0, "max": 9999 },
+          { "name": "CurrentHitPoints", "label": "Current HP", "kind": "int", "min": 0, "max": 9999,
+            "help": "Field is a 16-bit signed integer — values above 32767 will corrupt the save." },
+          { "name": "ForcePoints", "label": "Max Force Points", "kind": "int", "min": 0, "max": 9999 },
+          { "name": "CurrentForce", "label": "Current Force Points", "kind": "int", "min": 0, "max": 9999 }
         ]
       },
       {
-        "title": "Alignment & Faction",
+        "title": "Defenses",
         "fields": [
+          { "name": "NaturalAC", "label": "Natural AC bonus", "kind": "int", "min": 0, "max": 50 },
+          { "name": "fortbonus", "label": "Fortitude save bonus", "kind": "int", "min": -50, "max": 50 },
+          { "name": "refbonus", "label": "Reflex save bonus", "kind": "int", "min": -50, "max": 50 },
+          { "name": "willbonus", "label": "Will save bonus", "kind": "int", "min": -50, "max": 50 }
+        ]
+      },
+      {
+        "title": "Experience & Alignment",
+        "fields": [
+          { "name": "Experience", "label": "Experience (XP)", "kind": "int", "min": 0, "max": 9999999,
+            "help": "Total XP earned. Level up triggers on next XP gain past the next-level threshold." },
           { "name": "GoodEvil", "label": "Alignment (Dark ↔ Light)", "kind": "int",
             "min": 0, "max": 100,
-            "help": "0 = pure dark side, 50 = neutral, 100 = pure light side." },
-          { "name": "FactionID", "label": "Faction", "kind": "enum", "enum": "faction" },
-          { "name": "LightForcePoints", "label": "Light-side force points earned", "kind": "int" },
-          { "name": "DarkForcePoints", "label": "Dark-side force points earned", "kind": "int" }
+            "help": "0 = pure dark side, 50 = neutral, 100 = pure light side." }
         ]
       },
       {
-        "title": "Inventory & Progression",
+        "title": "Advanced",
         "fields": [
-          { "name": "Gold", "label": "Credits", "kind": "int",
-            "help": "Yes — KOTOR stores credits in a field literally called Gold." },
+          { "name": "Gold", "label": "Credits on this character", "kind": "int", "min": 0, "max": 999999999,
+            "help": "For party-wide credits, edit PT_GOLD in PARTYTABLE.res instead." },
           { "name": "ClassList", "label": "Classes (multiclass)", "kind": "list",
-            "help": "Each entry is a class + level. Edit in the Advanced tree." },
-          { "name": "SkillList", "label": "Skills", "kind": "list" },
-          { "name": "FeatList", "label": "Feats", "kind": "list" },
+            "help": "Each entry is a class + level. Edit in the raw tree below." },
           { "name": "Equip_ItemList", "label": "Equipped items", "kind": "list" },
           { "name": "ItemList", "label": "Inventory", "kind": "list" }
         ]

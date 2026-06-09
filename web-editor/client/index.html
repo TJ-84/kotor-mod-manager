@@ -392,13 +392,29 @@ function renderFileList() {
           li.style.fontWeight = "600";
           li.style.background = "rgba(245, 197, 99, 0.12)";
           li.style.borderLeft = "3px solid var(--accent)";
-          li.title = "Click to edit the Player Character (lifted from the nested module archive)";
+          li.title = "Click to edit the Player Character";
           if (state.current && state.current._isPC && state.current._saveFolder === f.folder) {
             li.classList.add("active");
           }
           li.onclick = (ev) => {
             ev.stopPropagation();
             openPC(f.folder);
+          };
+        } else if (f.fileName && f.fileName.startsWith("__NPC__:")) {
+          li.style.fontWeight = "600";
+          li.style.background = "rgba(110, 193, 228, 0.10)";
+          li.style.borderLeft = "3px solid var(--accent-2)";
+          const resref = f.fileName.slice("__NPC__:".length);
+          li.title = `Click to edit ${resref}.utc inside SAVEGAME.sav`;
+          li.onclick = (ev) => {
+            ev.stopPropagation();
+            openArchiveEntry({
+              folder: f.folder,
+              archive: "SAVEGAME.sav",
+              inner: [],
+              resref: resref,
+              res_type: 2027,
+            });
           };
         } else if (f.fileName && f.fileName.toLowerCase().endsWith(".sav")) {
           li.onclick = () => {
@@ -780,6 +796,17 @@ function renderGFF() {
             inp.type = "number";
             if (f.min !== undefined) inp.min = f.min;
             if (f.max !== undefined) inp.max = f.max;
+            // Clamp on blur so out-of-range numbers can't reach the server
+            inp.addEventListener("blur", () => {
+              let v = parseFloat(inp.value);
+              if (!Number.isFinite(v)) return;
+              if (f.min !== undefined && v < f.min) v = f.min;
+              if (f.max !== undefined && v > f.max) v = f.max;
+              if (String(v) !== inp.value) {
+                inp.value = String(v);
+                inp.dispatchEvent(new Event("input", {bubbles: true}));
+              }
+            });
           }
           inp.dataset.path = f.name;
           inp.dataset.kind = "scalar";
@@ -787,6 +814,13 @@ function renderGFF() {
           inp.addEventListener("input", onGffEdit);
           inp.addEventListener("input", () => ctl.classList.add("dirty"));
           ctl.appendChild(inp);
+          // Range hint under the input
+          if (f.min !== undefined || f.max !== undefined) {
+            const r = document.createElement("span");
+            r.className = "help";
+            r.textContent = `Safe range: ${f.min ?? "—"} to ${f.max ?? "—"}`;
+            ctl.appendChild(r);
+          }
         }
 
         if (f.help && f.kind !== "list") {

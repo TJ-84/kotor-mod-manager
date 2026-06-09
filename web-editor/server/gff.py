@@ -218,20 +218,40 @@ def dumps(gff: dict) -> bytes:
         return off
 
     def write_field_value(ftype: int, value: Any) -> int:
+        # Raise a clear error rather than silently wrapping; the previous
+        # behaviour was wrap-around which can corrupt a save (e.g. HP=99999
+        # wraps to 34463 for a SHORT field).
+        def _check(lo: int, hi: int, label: str) -> int:
+            try:
+                v = int(value)
+            except (TypeError, ValueError):
+                raise ValueError(f"{label} field must be an integer, got {value!r}")
+            if v < lo or v > hi:
+                raise ValueError(
+                    f"{label} value {v} out of range [{lo}, {hi}] — would overflow on write"
+                )
+            return v
+
         if ftype == BYTE:
-            return value & 0xFF
+            return _check(0, 0xFF, "BYTE") & 0xFF
         if ftype == CHAR:
-            return (value + 256) & 0xFF if value < 0 else value & 0xFF
+            v = _check(-128, 127, "CHAR")
+            return (v + 256) & 0xFF if v < 0 else v
         if ftype == WORD:
-            return value & 0xFFFF
+            return _check(0, 0xFFFF, "WORD") & 0xFFFF
         if ftype == SHORT:
-            return (value + 65536) & 0xFFFF if value < 0 else value & 0xFFFF
+            v = _check(-32768, 32767, "SHORT")
+            return (v + 65536) & 0xFFFF if v < 0 else v
         if ftype == DWORD:
-            return value & 0xFFFFFFFF
+            return _check(0, 0xFFFFFFFF, "DWORD") & 0xFFFFFFFF
         if ftype == INT:
-            return struct.unpack("<I", struct.pack("<i", int(value)))[0]
+            v = _check(-2**31, 2**31 - 1, "INT")
+            return struct.unpack("<I", struct.pack("<i", v))[0]
         if ftype == FLOAT:
-            return struct.unpack("<I", struct.pack("<f", float(value)))[0]
+            try:
+                return struct.unpack("<I", struct.pack("<f", float(value)))[0]
+            except (TypeError, ValueError, OverflowError):
+                raise ValueError(f"FLOAT value {value!r} not finite")
         if ftype == DWORD64:
             return add_fdata_aligned(struct.pack("<Q", int(value)))
         if ftype == INT64:
